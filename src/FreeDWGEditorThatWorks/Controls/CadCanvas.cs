@@ -1,9 +1,13 @@
 ﻿using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using FreeDwg.Core.Commands;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
+using FreeDwg.Core.Scene;
+using FreeDwg.Core.Styling;
+using FreeDwg.Core.Tools;
 using FreeDWGEditorThatWorks.Rendering;
 using SceneDrawing = FreeDwg.Core.Scene.Drawing;
 
@@ -21,6 +25,7 @@ public sealed class CadCanvas : FrameworkElement
     private uint _backgroundBrushKey = uint.MaxValue;
 
     private bool _isPanning;
+    private bool _panDragged;
     private Point _panAnchor;
     private bool _zoomExtentsPending;
 
@@ -28,11 +33,17 @@ public sealed class CadCanvas : FrameworkElement
     private Point _pickAnchor;
     private Point _bandCorner;
 
+    private DrawTool? _tool;
+    private Vec2 _cursor;
+
     /// <summary>How far a click may miss by, in device pixels.</summary>
     private const double PickRadiusPixels = 6.0;
 
     /// <summary>Drag further than this and a click becomes a selection window.</summary>
     private const double DragThresholdPixels = 4.0;
+
+    /// <summary>Colour the tool draws in while the entity is still being picked.</summary>
+    private static readonly Rgb PreviewColor = new(255, 190, 90);
 
     private static readonly Pen WindowPen = MakeBandPen(Color.FromRgb(90, 150, 255), dashed: false);
     private static readonly Pen CrossingPen = MakeBandPen(Color.FromRgb(110, 220, 120), dashed: true);
@@ -73,6 +84,39 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>What is selected. Survives a redraw; cleared when the drawing changes.</summary>
     public Selection Selection { get; } = new();
 
+    /// <summary>
+    /// Undo stack for the drawing on show. Every change goes through it, so
+    /// it doubles as the record of what a save would have to write.
+    /// </summary>
+    public CommandStack? Commands { get; private set; }
+
+    /// <summary>
+    /// The tool in force, or null for the pointer. Setting it abandons
+    /// whatever the previous tool had half-picked.
+    /// </summary>
+    public DrawTool? Tool
+    {
+        get => _tool;
+        set
+        {
+            _tool?.Cancel();
+            _tool = value;
+
+            if (_tool is not null)
+            {
+                Selection.Clear();
+                ZoomWindowArmed = false;
+            }
+
+            Cursor = _tool is null ? Cursors.Arrow : Cursors.Cross;
+            InvalidateVisual();
+            ToolChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>What the tool wants next, for the status bar.</summary>
+    public string? ToolPrompt => _tool?.Prompt;
+
     /// <summary>Pick tolerance in world units at the current zoom.</summary>
     public double PickTolerance => Camera.Scale > 0 ? PickRadiusPixels / Camera.Scale : 0;
 
@@ -94,13 +138,23 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Fires after the selection changes, for the same reason.</summary>
     public event EventHandler? SelectionChanged;
 
+    /// <summary>Fires when the active tool changes, or wants a different point.</summary>
+    public event EventHandler? ToolChanged;
+
+    /// <summary>Fires after the drawing is edited, so the shell can refresh counts.</summary>
+    public event EventHandler? DrawingEdited;
+
     public SceneDrawing? Drawing
     {
         get => _drawing;
         set
         {
             _drawing = value;
+            Tool = null;
             Selection.Clear();
+
+            // The stack describes one document; a new document starts clean.
+            Commands = value is null ? null : new CommandStack(value);
             ZoomExtents();
         }
     }
@@ -147,7 +201,22 @@ public sealed class CadCanvas : FrameworkElement
         LastStats = SceneRenderer.Render(_drawing, Camera, sink,
             Selection.IsEmpty ? null : Selection.Entities, Settings);
 
+        if (_tool is not null) DrawToolPreview(sink);
         if (_isBanding) DrawSelectionBand(dc);
+    }
+
+    /// <summary>
+    /// The entity as it would be if the cursor were the next point, drawn
+    /// through the same sink as the scene. A preview that went through its
+    /// own drawing path would be free to disagree with the result, which is
+    /// exactly what a preview must not do.
+    /// </summary>
+    private void DrawToolPreview(IDrawingSink sink)
+    {
+        if (_tool is null || !_tool.InProgress || _drawing is null) return;
+
+        var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
+        _tool.Preview(_cursor, context, new DisplayStyle(PreviewColor, Lineweight.Default));
     }
 
     /// <summary>
@@ -194,6 +263,7 @@ public sealed class CadCanvas : FrameworkElement
         if (e.ChangedButton is MouseButton.Middle or MouseButton.Right)
         {
             _isPanning = true;
+            _panDragged = false;
             _panAnchor = e.GetPosition(this);
             CaptureMouse();
             Cursor = Cursors.SizeAll;
@@ -201,7 +271,18 @@ public sealed class CadCanvas : FrameworkElement
             return;
         }
 
-        if (e.ChangedButton == MouseButton.Left && _drawing is not null)
+        if (_drawing is null) return;
+
+        // A tool takes its points on the way down, and never bands.
+        if (_tool is not null && e.ChangedButton == MouseButton.Left)
+        {
+            Point picked = e.GetPosition(this);
+            PlaceToolPoint(Camera.ScreenToWorld(new Vec2(picked.X, picked.Y)));
+            e.Handled = true;
+            return;
+        }
+
+        if (e.ChangedButton == MouseButton.Left)
         {
             _pickAnchor = e.GetPosition(this);
             _bandCorner = _pickAnchor;
@@ -210,16 +291,39 @@ public sealed class CadCanvas : FrameworkElement
         }
     }
 
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+
+        // Right-click finishes an open-ended tool, as it does in AutoCAD.
+        // A right-drag was a pan, and must not also end the polyline.
+        if (_tool is null || _panDragged || !_tool.InProgress) return;
+
+        FinishTool();
+        e.Handled = true;
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         Point p = e.GetPosition(this);
 
+        _cursor = Camera.ScreenToWorld(new Vec2(p.X, p.Y));
+
         if (_isPanning)
         {
+            // A right button that only ever went down and up is a click, not
+            // a pan, and a click is how an open-ended tool is finished.
+            if (Math.Abs(p.X - _panAnchor.X) > 1 || Math.Abs(p.Y - _panAnchor.Y) > 1) _panDragged = true;
+
             Camera.PanByScreenDelta(p.X - _panAnchor.X, p.Y - _panAnchor.Y);
             _panAnchor = p;
             Redraw();
+        }
+        else if (_tool is { InProgress: true })
+        {
+            // The preview follows the cursor, so every move is a repaint.
+            InvalidateVisual();
         }
         else if (e.LeftButton == MouseButtonState.Pressed && IsMouseCaptured)
         {
@@ -270,7 +374,7 @@ public sealed class CadCanvas : FrameworkElement
         }
         else
         {
-            SelectAtPoint(p, extend);
+            PickAt(Camera.ScreenToWorld(new Vec2(p.X, p.Y)), extend);
         }
     }
 
@@ -278,8 +382,33 @@ public sealed class CadCanvas : FrameworkElement
     {
         base.OnKeyDown(e);
 
-        if (e.Key != Key.Escape) return;
+        switch (e.Key)
+        {
+            case Key.Escape:
+                CancelWhateverIsHappening();
+                e.Handled = true;
+                return;
 
+            case Key.Enter:
+                if (_tool is { InProgress: true })
+                {
+                    FinishTool();
+                    e.Handled = true;
+                }
+                return;
+
+            case Key.Delete:
+                if (EraseSelection()) e.Handled = true;
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Escape, in the order a user means it: the thing most recently started
+    /// is the thing it takes back.
+    /// </summary>
+    private void CancelWhateverIsHappening()
+    {
         if (_isBanding)
         {
             _isBanding = false;
@@ -287,10 +416,100 @@ public sealed class CadCanvas : FrameworkElement
             InvalidateVisual();
         }
 
+        if (_tool is { InProgress: true })
+        {
+            _tool.Cancel();
+            InvalidateVisual();
+            ToolChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (_tool is not null)
+        {
+            Tool = null;
+            return;
+        }
+
         if (ZoomWindowArmed) Disarm();
         else Selection.Clear();
+    }
 
-        e.Handled = true;
+    // ---- editing --------------------------------------------------------
+
+    /// <summary>
+    /// Hands the active tool its next point. Public for the same reason
+    /// <see cref="PickAt"/> is.
+    /// </summary>
+    public void PlaceToolPoint(Vec2 world)
+    {
+        if (_tool is null) return;
+
+        Commit(_tool.Click(world));
+
+        InvalidateVisual();
+        ToolChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Ends an open-ended tool, as Enter or a right click does.</summary>
+    public void FinishTool()
+    {
+        if (_tool is null) return;
+
+        Commit(_tool.Finish());
+
+        InvalidateVisual();
+        ToolChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Puts a finished entity into the drawing, on the current layer and
+    /// through the command stack -- the only route in.
+    /// </summary>
+    private void Commit(SceneEntity? entity)
+    {
+        if (entity is null || _drawing is null || Commands is null) return;
+
+        _drawing.Place(entity);
+        Commands.Do(new AddEntities(_drawing.ActiveLayout, entity));
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Deletes what is selected. Returns whether there was anything to delete.</summary>
+    public bool EraseSelection()
+    {
+        if (_drawing is null || Commands is null || Selection.IsEmpty) return false;
+
+        Commands.Do(new DeleteEntities(_drawing.ActiveLayout, Selection.Ordered));
+        Selection.Clear();
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    public void Undo()
+    {
+        if (Commands?.Undo() != true) return;
+        AfterHistoryMove();
+    }
+
+    public void Redo()
+    {
+        if (Commands?.Redo() != true) return;
+        AfterHistoryMove();
+    }
+
+    private void AfterHistoryMove()
+    {
+        // Undoing a draw takes the entity out of the layout, and a selection
+        // holding an entity that is no longer in the drawing would keep it
+        // alive on screen as a highlight over nothing.
+        if (_drawing is not null)
+            Selection.Prune(_drawing.ActiveLayout.Entities.Contains);
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
     }
 
     private void Disarm()
@@ -299,7 +518,16 @@ public sealed class CadCanvas : FrameworkElement
         ZoomWindowDisarmed?.Invoke(this, EventArgs.Empty);
     }
 
-    private void SelectAtPoint(Point device, bool extend)
+    /// <summary>
+    /// Picks whatever is at a world point, as a click does.
+    /// </summary>
+    /// <remarks>
+    /// World coordinates rather than device ones, and public, because the
+    /// mouse handler is not the only thing that will ever want this: a
+    /// command line takes typed coordinates, and a test has no mouse. The
+    /// handler converts and calls in here.
+    /// </remarks>
+    public void PickAt(Vec2 world, bool extend = false)
     {
         if (_drawing is null) return;
 
@@ -310,7 +538,6 @@ public sealed class CadCanvas : FrameworkElement
             return;
         }
 
-        var world = Camera.ScreenToWorld(new Vec2(device.X, device.Y));
         var hit = Picker.At(_drawing, world, PickTolerance);
 
         if (hit is null)

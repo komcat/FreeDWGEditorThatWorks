@@ -1,4 +1,4 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 
 namespace FreeDwg.Core.Scene;
@@ -66,6 +66,26 @@ public sealed class Layout
     {
         Entities.Add(entity);
         InvalidateBounds();
+    }
+
+    /// <summary>
+    /// Puts an entity back where it was. Undoing a delete has to restore the
+    /// position as well as the entity: entity order is painting order, and an
+    /// entity that comes back on top of what it used to sit under is a
+    /// different picture.
+    /// </summary>
+    public void Insert(int index, SceneEntity entity)
+    {
+        Entities.Insert(Math.Clamp(index, 0, Entities.Count), entity);
+        InvalidateBounds();
+    }
+
+    public bool Remove(SceneEntity entity)
+    {
+        if (!Entities.Remove(entity)) return false;
+
+        InvalidateBounds();
+        return true;
     }
 
     public override string ToString() => Name;

@@ -1,4 +1,4 @@
-using FreeDwg.Core.Styling;
+﻿using FreeDwg.Core.Styling;
 
 namespace FreeDwg.Core.Scene;
 
@@ -22,6 +22,13 @@ public sealed class Layer
     public ulong SourceHandle { get; init; }
 
     public bool IsVisible => IsOn && !IsFrozen;
+
+    /// <summary>
+    /// The resolved style an entity drawn on this layer takes. Styles are
+    /// resolved at import, so an entity created here has to be given one
+    /// outright rather than left saying ByLayer.
+    /// </summary>
+    public DisplayStyle Style => new(Color, Lineweight, Linetype);
 
     public override string ToString() => Name;
 }

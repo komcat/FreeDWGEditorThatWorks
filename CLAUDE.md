@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 170 tests, ~0.7s
+dotnet test                 # 220 tests, ~0.7s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -16,6 +16,9 @@ debug one. Read it before changing anything they cover.
 
 ```
 src/FreeDwg.Core/          net10.0          scene model, geometry, renderer
+  Commands/                                 every mutation, undoably
+  Tools/                                    draw tools, input-agnostic
+  Picking/                                  hit testing, selection, spatial index
 src/FreeDwg.Interop.Acad/  net10.0          ACadSharp -> scene  (the only project that sees ACadSharp)
 src/FreeDWGEditorThatWorks/ net10.0-windows WPF shell, canvas, WPF sink
   Resources/Icons.xaml                      toolbar icons, as path data
@@ -49,6 +52,14 @@ with no WPF and no parser present. Do not add either reference to Core.
   that saving can apply deltas to the original document instead of
   regenerating it. See the handoff doc; this is the whole basis of not
   destroying data we do not model.
+- **Nothing mutates the drawing except an `IEditCommand`.** The delta a save
+  will apply *is* the command stack, so an edit made behind its back is an
+  edit the writer cannot see. `CommandStack.Summarize()` replays the stack
+  into a `ChangeLog` rather than tracking it as edits happen, so undo cannot
+  leave it claiming a change that is no longer there.
+- **A `DrawTool` takes world points and returns an entity.** It holds no
+  reference to a drawing, so it *cannot* reach past the command stack. That
+  also makes the whole set testable as arithmetic, with no mouse involved.
 - Curves with no closed form re-sample per frame from
   `EmitContext.PixelsPerUnit` rather than being flattened at import, and from
   `PickContext.Tolerance` when they are being picked.

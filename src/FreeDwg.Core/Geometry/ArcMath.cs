@@ -1,4 +1,4 @@
-namespace FreeDwg.Core.Geometry;
+﻿namespace FreeDwg.Core.Geometry;
 
 /// <summary>
 /// Circular-arc helpers. Angles are radians, counter-clockwise from +X, in
@@ -93,6 +93,63 @@ public static class ArcMath
         double startAngle = (start - center).Angle();
         double sweep = 4.0 * Math.Atan(bulge);
         return (center, radius, startAngle, sweep);
+    }
+
+    /// <summary>
+    /// The circle through three points, or false when they are collinear.
+    /// </summary>
+    /// <remarks>
+    /// The centre is where the perpendicular bisectors of two of the chords
+    /// meet, which is the determinant below. Drafting asks for this whenever
+    /// an arc is given by where it starts, where it passes and where it ends.
+    /// </remarks>
+    public static bool TryCircleThrough(Vec2 a, Vec2 b, Vec2 c, out Vec2 center, out double radius)
+    {
+        double area2 = Vec2.Cross(b - a, c - a);
+
+        // Collinear, or two points on top of each other: no finite circle.
+        if (Math.Abs(area2) < 1e-12)
+        {
+            center = Vec2.Lerp(a, c, 0.5);
+            radius = 0;
+            return false;
+        }
+
+        double aa = a.LengthSquared, bb = b.LengthSquared, cc = c.LengthSquared;
+
+        center = new Vec2(
+            (aa * (b.Y - c.Y) + bb * (c.Y - a.Y) + cc * (a.Y - b.Y)) / (2 * area2),
+            (aa * (c.X - b.X) + bb * (a.X - c.X) + cc * (b.X - a.X)) / (2 * area2));
+
+        radius = Vec2.Distance(center, a);
+        return true;
+    }
+
+    /// <summary>
+    /// The arc that starts at <paramref name="start"/>, passes through
+    /// <paramref name="through"/> and ends at <paramref name="end"/>.
+    /// </summary>
+    /// <remarks>
+    /// The middle point is what picks the direction: of the two ways round
+    /// from start to end, the arc takes whichever one it lies on.
+    /// </remarks>
+    public static bool TryArcThrough(Vec2 start, Vec2 through, Vec2 end,
+        out Vec2 center, out double radius, out double startAngle, out double sweep)
+    {
+        startAngle = 0;
+        sweep = 0;
+
+        if (!TryCircleThrough(start, through, end, out center, out radius)) return false;
+
+        startAngle = (start - center).Angle();
+
+        double toEnd = Normalize((end - center).Angle() - startAngle);
+        double toThrough = Normalize((through - center).Angle() - startAngle);
+
+        // Counter-clockwise if the middle point comes before the end going
+        // that way; otherwise the same arc the other way round, so negative.
+        sweep = toThrough <= toEnd ? toEnd : toEnd - TwoPi;
+        return Math.Abs(sweep) > 1e-12;
     }
 
     /// <summary>

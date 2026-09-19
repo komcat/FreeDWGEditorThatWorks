@@ -14,6 +14,13 @@ a window to find out. With `FREEDWG_TEST_RENDERS` set it also writes
 `icons.png`, a labelled contact sheet — which is how to tell an icon that
 parses from an icon that reads.
 
+**`CommandTests` and `ToolTests`** are arithmetic too: what each tool builds
+from the points it is given, and that undo puts a drawing back exactly,
+entity order included. `CanvasTests` then drives the real `CadCanvas` through
+draw, select, erase and undo using its world-coordinate entry points — not
+synthesised mouse messages, which WPF ignores in favour of the live mouse
+device, and which would move the real cursor on whoever is at the machine.
+
 **`GeometryTests`, `PickingTests` and `SelectionTests`** are ordinary
 arithmetic: de Boor against the Bézier a clamped cubic reduces to, bulge
 sagitta, arc and ellipse bounds, matrix composition order and inversion,
@@ -37,7 +44,11 @@ catch were invisible to the object model and only showed up in pixels:
 - a mirrored block flipping that sweep back again;
 - dimensions losing their arrowheads, because an arrowhead is a `SOLID`;
 - a selected block highlighting its own outline but not the geometry
-  inside it, which is what `SelectionRenderTests` watches for.
+  inside it, which is what `SelectionRenderTests` watches for;
+- an edit that leaves the layout's bounds or its spatial index stale, which
+  passes every model-level test and then draws nothing at all. That is what
+  `DrawingRenderTests` is for: it builds a drawing by clicking, the way the
+  editor does, and then looks at the pixels.
 
 ## Fixtures
 

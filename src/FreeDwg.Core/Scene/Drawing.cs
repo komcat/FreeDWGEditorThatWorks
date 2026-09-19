@@ -1,4 +1,4 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 
 namespace FreeDwg.Core.Scene;
 
@@ -35,8 +35,35 @@ public sealed class Drawing
     /// </summary>
     public Layout ActiveLayout { get; set; }
 
-    /// <summary>Path this was imported from, if any.</summary>
+    /// <summary>Path this was imported from, if any. Null for a new drawing.</summary>
     public string? SourcePath { get; set; }
+
+    /// <summary>
+    /// The layer new entities are created on. Index into <see cref="Layers"/>;
+    /// out of range reads as layer 0, which is the one every DWG has.
+    /// </summary>
+    public int CurrentLayerIndex { get; set; }
+
+    public Layer? CurrentLayer =>
+        (uint)CurrentLayerIndex < (uint)Layers.Count ? Layers[CurrentLayerIndex] : Layers.FirstOrDefault();
+
+    /// <summary>
+    /// An empty drawing with the layer every DWG is required to have.
+    /// </summary>
+    public static Drawing CreateEmpty()
+    {
+        var drawing = new Drawing();
+        drawing.AddLayer(new Layer("0") { Color = Styling.Rgb.White });
+        return drawing;
+    }
+
+    /// <summary>Stamps a new entity with the current layer and its style.</summary>
+    public T Place<T>(T entity) where T : SceneEntity
+    {
+        entity.LayerIndex = CurrentLayerIndex;
+        entity.Style = CurrentLayer?.Style ?? Styling.DisplayStyle.Default;
+        return entity;
+    }
 
     /// <summary>Entities of the active layout.</summary>
     public List<SceneEntity> Entities => ActiveLayout.Entities;

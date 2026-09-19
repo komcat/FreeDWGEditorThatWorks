@@ -1,4 +1,4 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene;
 
 namespace FreeDwg.Core.Picking;
@@ -98,6 +98,25 @@ public sealed class Selection
 
         if (added > 0) Changed?.Invoke(this, EventArgs.Empty);
         return added;
+    }
+
+    /// <summary>
+    /// Drops everything that no longer passes <paramref name="keep"/>. Undo
+    /// can take an entity out of the drawing while it is still selected, and
+    /// a highlight over something that is not there any more is a ghost.
+    /// </summary>
+    public int Prune(Func<SceneEntity, bool> keep)
+    {
+        int removed = _ordered.RemoveAll(entity =>
+        {
+            if (keep(entity)) return false;
+
+            _set.Remove(entity);
+            return true;
+        });
+
+        if (removed > 0) Changed?.Invoke(this, EventArgs.Empty);
+        return removed;
     }
 
     /// <summary>Bounds of everything selected, for zooming to it.</summary>

@@ -19,6 +19,8 @@
         <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1"
                 BorderBrush="{StaticResource Tool.Divider}" Background="#FFF7F9FC">
             <StackPanel Orientation="Horizontal" Margin="4,3">
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.New}"
+                        Click="OnNewClick" ToolTip="New drawing  (Ctrl+N)" />
                 <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Open}"
                         Click="OnOpenClick" ToolTip="Open a DWG or DXF drawing  (Ctrl+O)" />
                 <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Save}"
@@ -26,10 +28,10 @@
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 
-                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Undo}"
-                        IsEnabled="False" ToolTip="Undo  -  arrives with the command stack (E2)" />
-                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Redo}"
-                        IsEnabled="False" ToolTip="Redo  -  arrives with the command stack (E2)" />
+                <Button x:Name="UndoButton" Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Undo}"
+                        Click="OnUndoClick" IsEnabled="False" ToolTip="Undo  (Ctrl+Z)" />
+                <Button x:Name="RedoButton" Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Redo}"
+                        Click="OnRedoClick" IsEnabled="False" ToolTip="Redo  (Ctrl+Y)" />
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 
@@ -72,11 +74,10 @@
                 transfers. Three columns because one would be 28 buttons tall and
                 run off the bottom of a 700px window; two still needed a scrollbar.
 
-                Everything but the pointer is disabled on purpose: a tool has
-                to mutate the scene, and the rule is that nothing mutates it
-                except through the command stack, which is E2. The buttons are
-                here now because the palette is what the shell is laid out
-                around, and its tooltips say what each one is waiting for.
+                The tools that are still disabled say in their tooltip what
+                they are waiting for. Nothing here touches the drawing
+                directly: a tool hands back an entity and the canvas puts it
+                on the command stack, which is the only way in.
             -->
             <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{StaticResource Tool.Divider}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -85,22 +86,22 @@
 
                         <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
                             <RadioButton x:Name="SelectTool" GroupName="Tool" Style="{StaticResource ToolToggle}"
-                                         Tag="{StaticResource Icon.Select}" IsChecked="True"
+                                         Tag="{StaticResource Icon.Select}" IsChecked="True" Click="OnToolPicked"
                                          ToolTip="Select  -  click to pick, drag left to right for a window, right to left to cross" />
+                            <RadioButton x:Name="LineTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Line}" ToolTip="Line  -  two points" />
+                            <RadioButton x:Name="PolylineTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Polyline}" ToolTip="Polyline  -  any number of points, Enter or right-click to finish" />
+                            <RadioButton x:Name="RectangleTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Rectangle}" ToolTip="Rectangle  -  two opposite corners" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Line}" ToolTip="Line  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Polyline}" ToolTip="Polyline  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Rectangle}" ToolTip="Rectangle  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Circle}" ToolTip="Circle  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Arc}" ToolTip="Arc  -  arrives with the draw tools (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Ellipse}" ToolTip="Ellipse  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  needs a side count to ask for, so it waits for command input" />
+                            <RadioButton x:Name="CircleTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Circle}" ToolTip="Circle  -  centre, then a point on the rim" />
+                            <RadioButton x:Name="ArcTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Arc}" ToolTip="Arc  -  start, a point on the arc, then the end" />
+                            <RadioButton x:Name="EllipseTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Ellipse}" ToolTip="Ellipse  -  centre, the end of the major axis, then the minor" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Spline}" ToolTip="Spline  -  arrives with the draw tools (E4)" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
@@ -119,8 +120,8 @@
                         <TextBlock Text="Modify" Style="{StaticResource PaletteGroupLabel}" />
 
                         <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Erase}" ToolTip="Erase  -  arrives with the command stack (E2)" />
+                            <Button x:Name="EraseButton" Style="{StaticResource ToolButton}" Click="OnEraseClick"
+                                    Tag="{StaticResource Icon.Erase}" ToolTip="Erase the selection  (Delete)" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Move}" ToolTip="Move  -  arrives with grips (E3)" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
@@ -160,6 +161,7 @@
                 </Grid>
 
                 <ListBox x:Name="LayerList" BorderThickness="1"
+                         SelectionChanged="OnLayerSelected"
                          HorizontalContentAlignment="Stretch"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
@@ -204,7 +206,7 @@
                 <TextBlock x:Name="EmptyHint" Grid.Row="0"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="#7F8C99" FontSize="15" IsHitTestVisible="False"
-                           Text="Open a .dwg or .dxf to begin&#x0a;Scroll to zoom, middle-drag to pan, click to select"
+                           Text="Pick a tool from the Draw palette, or open a .dwg&#x0a;Scroll to zoom, middle-drag to pan, click to select"
                            TextAlignment="Center" />
 
                 <!-- Model and paper space sheets, in tab order, as in AutoCAD. -->

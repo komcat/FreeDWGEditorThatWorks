@@ -18,6 +18,9 @@ it. 165 tests pass in about half a second.
 | M5 | `6b2495d` | paper space, viewports |
 | — | `1325ee0` | the render harness became `tests/` |
 | E1 | — | selection, hit testing and the spatial index |
+| — | — | icon toolbar and tool palette |
+| E2 | — | command stack, undo/redo, change log |
+| E4 | — | new documents and six draw tools (no snapping yet) |
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -113,26 +116,41 @@ Two UI decisions worth knowing before changing them: left-drag no longer pans
 *replaces* the selection where AutoCAD would add to it — Shift or Ctrl
 extends.
 
-**The toolbars came next, ahead of the tools they will drive.** The shell now
-has an icon toolbar and a Draw/Modify palette holding all 28 tools, drawn as
-path data in `Resources/Icons.xaml`. Only the pointer, zoom extents and zoom
-window are live; everything else is disabled, and each tooltip names the
-milestone it is waiting for. That is deliberate rather than lazy: a tool
-mutates the scene, and E2's whole point is that nothing mutates it except
-through the command stack. The palette is here early because it is what the
-window is laid out around, and because an icon set is easier to judge as a
-set than one button at a time.
+**The toolbars came next, ahead of the tools they drive.** The shell has an
+icon toolbar and a Draw/Modify palette holding all 28 tools, drawn as path
+data in `Resources/Icons.xaml`. The ones that are still disabled say in their
+tooltip what they are waiting for.
 
-Wiring a tool up when its milestone lands is a `Click` handler and dropping
-`IsEnabled="False"`. What does *not* yet exist is the tool-state machine
-itself — which tool is in force, what a click means while one is active, how
-a tool ends. `CadCanvas.ZoomWindowArmed` is the smallest possible version of
-that idea (one flag, one shot) and should be replaced by the real thing in
-E4, not extended.
+The app now opens on a blank Untitled drawing rather than on nothing, so the
+draw tools have somewhere to put things before anything is loaded.
+`CadCanvas.Tool` is the tool in force; setting it abandons whatever the
+previous tool had half-picked, and clears the selection, because drawing and
+selecting are different modes and carrying a selection into a draw tool only
+makes the next Delete a surprise.
 
-**E2 — Command stack.** A mutation API on `Drawing` that goes through
-commands, undo/redo, and the dirty tracking E5 needs. Get this in before any
-tool exists, so no tool can mutate the scene directly.
+`CadCanvas.PickAt` and `PlaceToolPoint` take **world** coordinates and are
+public. The mouse handlers are thin wrappers over them, which is what lets
+`CanvasTests` drive a whole draw-select-erase-undo cycle without a mouse.
+Synthesising mouse messages does not work here: WPF reads the pointer from
+the live mouse device, so a fake click is either ignored or lands wherever
+the real cursor is, and a test that moves the real cursor clicks on whatever
+the person at the machine is doing.
+
+**E2 — Command stack. Done.** `IEditCommand` with `Apply`/`Undo`/`Describe`,
+`CommandStack` holding done and undone lists, `AddEntities` and
+`DeleteEntities`. Held per drawing rather than per application, because an
+undo stack belongs to the document it describes.
+
+The dirty tracking is `ChangeLog`, and `Summarize()` builds it by replaying
+the done stack rather than maintaining it as edits land. That sounds wasteful
+and is not: it runs when someone asks rather than on every mouse move, and it
+means undo cannot leave the log claiming a change that has been taken back.
+Maintaining the sets incrementally needs every command to know how to remove
+itself from them, which is where this kind of bookkeeping goes wrong.
+
+`DeleteEntities` remembers the position of everything it removes, because
+entity order is painting order: an entity restored on top of what it used to
+sit under has not really been restored.
 
 **E3 — Grips.** Move, and drag endpoints. The first real test of whether the
 scene model is comfortable to mutate; expect to find that some entity caches
@@ -141,9 +159,31 @@ invalidating more carefully than they do now. `SceneEntity.InvalidateBounds`
 exists but nothing calls it yet, and nothing carries it up to the layout that
 indexed the entity. E3 is where that has to be sorted out.
 
-**E4 — Draw tools and snapping.** Line, polyline, circle, arc. Object snap
-(endpoint, midpoint, centre, intersection) is what makes drafting usable and
-is the largest chunk here.
+**E4 — Draw tools and snapping. Half done.** Line, polyline, rectangle,
+circle, three-point arc and ellipse all draw, on the current layer, through
+the command stack, with a live preview and undo. **Object snap is not
+written**, and it is the half that makes drafting actually usable — nothing
+here can yet be attached to anything already on the sheet.
+
+A `DrawTool` takes world points and gives back a scene entity. It has no
+reference to a drawing at all, so it cannot reach past the command stack;
+that rule is a type signature rather than a comment. The shell turns clicks
+into points, stamps the entity with the current layer, and commits.
+
+The preview draws through the same `IDrawingSink` as the scene, so a
+previewed arc bulges the way the real one will. A preview with its own
+drawing path is free to disagree with the result, which is the one thing a
+preview must never do.
+
+Arcs are three-point (start, a point on the arc, end) because it is the only
+form that needs no separate answer for which way round the arc goes: the
+middle point says. `ArcMath.TryArcThrough` is the arithmetic, and the sign of
+the sweep it returns is the same trap as ever — left to right over the top is
+*clockwise*, and the tests state it both ways round.
+
+Still to do here: object snap, polygon (which needs somewhere to ask for a
+side count), text (which needs an editor), and trim/extend/fillet/chamfer,
+which all want curve-curve intersection that snapping will need anyway.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at
@@ -198,3 +238,9 @@ noticed:
 - The palette scrolls rather than reflows, and is three columns because 28
   buttons in two did not fit a 700px window. A fourth group would want a real
   layout rather than another column.
+- There is no coordinate entry: every tool is mouse-only, so nothing can be
+  drawn to an exact size. That and object snap are the two things standing
+  between this and being usable for real work.
+- `CadCanvas.ZoomWindowArmed` is still a one-flag stand-in for a mode, living
+  beside the real tool state now. Fold it into `Tool` when something else
+  needs a transient mode.

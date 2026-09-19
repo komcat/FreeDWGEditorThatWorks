@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
+using FreeDwg.Core.Tools;
 using FreeDwg.Interop.Acad;
 using FreeDWGEditorThatWorks.ViewModels;
 using Microsoft.Win32;
@@ -21,6 +22,7 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<LayerItem> _layers = new();
     private ImportDiagnostics? _diagnostics;
+    private string _documentName = "Untitled";
 
     public MainWindow()
     {
@@ -37,7 +39,115 @@ public partial class MainWindow : Window
         // only reflects it, so that Escape or a stray click releases both.
         Canvas.ZoomWindowDisarmed += (_, _) => ZoomWindowToggle.IsChecked = false;
 
+        // A tool asking for its next point, and an edit landing, both change
+        // what the status bar and the undo buttons should say.
+        Canvas.ToolChanged += (_, _) => UpdateStatus();
+        Canvas.DrawingEdited += (_, _) =>
+        {
+            if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
+            UpdateHistoryButtons();
+            UpdateTitle();
+            UpdateStatus();
+            UpdateEmptyHint();
+        };
+
         InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(NewDrawing), Key.N, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Undo), Key.Z, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Redo), Key.Y, ModifierKeys.Control));
+
+        NewDrawing();
+    }
+
+    private void OnNewClick(object sender, RoutedEventArgs e) => NewDrawing();
+
+    /// <summary>
+    /// Starts an empty drawing. Also what the window opens on, so that the
+    /// draw tools have somewhere to put things before anything is loaded.
+    /// </summary>
+    private void NewDrawing()
+    {
+        var drawing = SceneDrawing.CreateEmpty();
+
+        _diagnostics = null;
+        _documentName = "Untitled";
+        Canvas.Drawing = drawing;
+
+        // A blank sheet has no extents to fit, so pick a working scale rather
+        // than leaving the camera wherever the last drawing left it.
+        Canvas.Camera.Center = Vec2.Zero;
+        Canvas.Camera.Scale = 1.0;
+        Canvas.Redraw();
+
+        PopulateLayouts(drawing);
+        PopulateLayers(drawing);
+        SelectTool.IsChecked = true;
+        Canvas.Tool = null;
+
+        UpdateHistoryButtons();
+        UpdateTitle();
+        UpdateStatus();
+        UpdateEmptyHint();
+    }
+
+    /// <summary>
+    /// The hint stands in for an empty sheet, so it comes and goes with the
+    /// geometry rather than only at startup -- undoing back to nothing gets
+    /// it back.
+    /// </summary>
+    private void UpdateEmptyHint() =>
+        EmptyHint.Visibility = Canvas.Drawing is { } drawing && drawing.Entities.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void OnToolPicked(object sender, RoutedEventArgs e)
+    {
+        Canvas.Tool = (sender as FrameworkElement)?.Name switch
+        {
+            nameof(LineTool) => new LineTool(),
+            nameof(PolylineTool) => new PolylineTool(),
+            nameof(RectangleTool) => new RectangleTool(),
+            nameof(CircleTool) => new CircleTool(),
+            nameof(ArcTool) => new ArcTool(),
+            nameof(EllipseTool) => new EllipseTool(),
+            _ => null,
+        };
+
+        Canvas.Focus();
+        UpdateStatus();
+    }
+
+    private void OnEraseClick(object sender, RoutedEventArgs e)
+    {
+        Canvas.EraseSelection();
+        Canvas.Focus();
+    }
+
+    private void OnUndoClick(object sender, RoutedEventArgs e)
+    {
+        Canvas.Undo();
+        Canvas.Focus();
+    }
+
+    private void OnRedoClick(object sender, RoutedEventArgs e)
+    {
+        Canvas.Redo();
+        Canvas.Focus();
+    }
+
+    private void UpdateHistoryButtons()
+    {
+        UndoButton.IsEnabled = Canvas.Commands?.CanUndo == true;
+        RedoButton.IsEnabled = Canvas.Commands?.CanRedo == true;
+
+        UndoButton.ToolTip = Canvas.Commands?.UndoName is { } undo ? $"Undo {undo}  (Ctrl+Z)" : "Undo  (Ctrl+Z)";
+        RedoButton.ToolTip = Canvas.Commands?.RedoName is { } redo ? $"Redo {redo}  (Ctrl+Y)" : "Redo  (Ctrl+Y)";
+    }
+
+    private void UpdateTitle()
+    {
+        string dirty = Canvas.Commands?.IsModified == true ? "*" : "";
+        Title = $"FreeDWG Editor - {_documentName}{dirty}";
     }
 
     private async void OnOpenClick(object sender, RoutedEventArgs e) => await OpenAsync();
@@ -63,13 +173,17 @@ public partial class MainWindow : Window
             SceneDrawing drawing = await Task.Run(() => DwgLoader.Load(path, diagnostics));
 
             _diagnostics = diagnostics;
+            _documentName = Path.GetFileName(path);
             Canvas.Drawing = drawing;
-            EmptyHint.Visibility = Visibility.Collapsed;
-            Title = $"FreeDWG Editor - {Path.GetFileName(path)}";
 
             PopulateLayouts(drawing);
             PopulateLayers(drawing);
+            SelectTool.IsChecked = true;
+
+            UpdateHistoryButtons();
+            UpdateTitle();
             UpdateStatus();
+            UpdateEmptyHint();
         }
         catch (Exception ex)
         {
@@ -109,6 +223,7 @@ public partial class MainWindow : Window
 
         PopulateLayers(drawing);
         UpdateStatus();
+        UpdateEmptyHint();
     }
 
     private void PopulateLayers(SceneDrawing drawing)
@@ -123,6 +238,21 @@ public partial class MainWindow : Window
             _layers.Add(new LayerItem(drawing.Layers[i], counts[i], OnLayerVisibilityChanged));
 
         LayerCountText.Text = _layers.Count.ToString();
+
+        // Selecting a row is how the current layer is chosen, so the list has
+        // to start on whatever the drawing says that is.
+        if ((uint)drawing.CurrentLayerIndex < (uint)_layers.Count)
+            LayerList.SelectedIndex = drawing.CurrentLayerIndex;
+    }
+
+    /// <summary>The selected row is the layer new geometry is drawn on.</summary>
+    private void OnLayerSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+        if (LayerList.SelectedIndex < 0) return;
+
+        drawing.CurrentLayerIndex = LayerList.SelectedIndex;
+        UpdateStatus();
     }
 
     private void OnLayerVisibilityChanged()
@@ -155,27 +285,48 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
-        if (_diagnostics is null) return;
+        // A tool that is mid-pick has one thing to say and it beats the
+        // statistics: the user is waiting to be told what to click next.
+        if (Canvas.ToolPrompt is { } prompt)
+        {
+            StatusText.Text = prompt;
+            return;
+        }
 
         var drawing = Canvas.Drawing;
-        Bounds2 bounds = drawing?.Bounds ?? Bounds2.Empty;
+        if (drawing is null)
+        {
+            StatusText.Text = "No drawing loaded.";
+            return;
+        }
+
+        Bounds2 bounds = drawing.Bounds;
+
+        string source = _diagnostics is null
+            ? $"{drawing.Entities.Count} entities"
+            : _diagnostics.Summary();
 
         string extents = bounds.IsEmpty ? "empty" : $"{bounds.Width:0.##} x {bounds.Height:0.##}";
-        string blocks = drawing is null || drawing.Blocks.Count == 0
-            ? ""
-            : $"   |   {drawing.Blocks.Count} blocks";
-        string layout = drawing is null ? "" : $"   |   {drawing.ActiveLayout.Name}";
+        string blocks = drawing.Blocks.Count == 0 ? "" : $"   |   {drawing.Blocks.Count} blocks";
+        string layer = drawing.CurrentLayer is { } current ? $"   |   layer {current.Name}" : "";
         string selected = Canvas.Selection.IsEmpty ? "" : $"   |   {Canvas.Selection.Count} selected";
 
         StatusText.Text =
-            $"{_diagnostics.Summary()}{blocks}{layout}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn{selected}";
+            $"{source}{blocks}   |   {drawing.ActiveLayout.Name}{layer}   |   extents {extents}{selected}";
     }
 
     /// <summary>Minimal ICommand shim so a keyboard shortcut can invoke an async method.</summary>
     private sealed class RelayCommand : ICommand
     {
         private readonly Func<Task> _execute;
+
         public RelayCommand(Func<Task> execute) => _execute = execute;
+
+        public RelayCommand(Action execute) => _execute = () =>
+        {
+            execute();
+            return Task.CompletedTask;
+        };
 
         public event EventHandler? CanExecuteChanged { add { } remove { } }
         public bool CanExecute(object? parameter) => true;
