@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -156,5 +157,13 @@ public sealed class SText : SceneEntity
 
         // No edge crossed: either the rectangle swallows the text or misses it.
         return box.Contains(corners[0]) || Distance.PointInPolygon(box.Center, corners);
+    }
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        // The insertion point, which is the only point on a text object that
+        // means anything: the glyph outlines are the font's business.
+        if (modes.HasFlag(SnapModes.Endpoint))
+            into.Add(new SnapCandidate(Position, SnapKind.Endpoint));
     }
 }

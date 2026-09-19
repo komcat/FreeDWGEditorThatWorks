@@ -1,6 +1,7 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Styling;
 
 namespace FreeDwg.Core.Scene;
@@ -71,6 +72,19 @@ public abstract class SceneEntity
 
     public bool IntersectsRect(Bounds2 rect, double tolerance) =>
         IntersectsRect(rect, new PickContext(tolerance));
+
+    /// <summary>
+    /// Offers the points on this entity that the cursor may jump to. The
+    /// third thing entities do for themselves, after emitting and hit
+    /// testing, and for the same reason: no type switch anywhere else.
+    /// </summary>
+    /// <remarks>
+    /// Only the kinds in <paramref name="modes"/> need be offered; anything
+    /// extra is filtered out again by the caller, so it is only wasted work.
+    /// An entity with no meaningful points -- a hatch, whose boundary is
+    /// derived rather than drawn -- offers none.
+    /// </remarks>
+    public abstract void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into);
 
     /// <summary>Applies this entity's ByBlock placeholders from the enclosing reference's style.</summary>
     public DisplayStyle StyleWithin(in DisplayStyle reference)

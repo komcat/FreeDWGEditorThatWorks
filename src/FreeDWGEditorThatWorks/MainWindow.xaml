@@ -49,6 +49,30 @@
                 <ToggleButton x:Name="LightBackgroundToggle" Style="{StaticResource ToolCheck}"
                               Tag="{StaticResource Icon.Background}" Click="OnBackgroundToggled"
                               ToolTip="Light background" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <ToggleButton x:Name="GridToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.Grid}" Click="OnGridToggled"
+                              ToolTip="Grid  -  show it, and snap to it when nothing else is near" />
+                <ToggleButton x:Name="OrthoToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.Ortho}" Click="OnSnapToggled"
+                              ToolTip="Ortho  -  hold each new point square with the last one" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <ToggleButton x:Name="EndpointSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapEndpoint}" Click="OnSnapToggled"
+                              ToolTip="Snap to endpoints and vertices" />
+                <ToggleButton x:Name="MidpointSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapMidpoint}" Click="OnSnapToggled"
+                              ToolTip="Snap to midpoints" />
+                <ToggleButton x:Name="CenterSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapCenter}" Click="OnSnapToggled"
+                              ToolTip="Snap to centres of circles, arcs and ellipses" />
+                <ToggleButton x:Name="QuadrantSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapQuadrant}" Click="OnSnapToggled"
+                              ToolTip="Snap to quadrants  -  the top, bottom, left and right of a circle" />
             </StackPanel>
         </Border>
 
@@ -85,22 +109,22 @@
                         <TextBlock Text="Draw" Style="{StaticResource PaletteGroupLabel}" />
 
                         <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
-                            <RadioButton x:Name="SelectTool" GroupName="Tool" Style="{StaticResource ToolToggle}"
+                            <RadioButton x:Name="SelectButton" GroupName="Tool" Style="{StaticResource ToolToggle}"
                                          Tag="{StaticResource Icon.Select}" IsChecked="True" Click="OnToolPicked"
                                          ToolTip="Select  -  click to pick, drag left to right for a window, right to left to cross" />
-                            <RadioButton x:Name="LineTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="LineButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Line}" ToolTip="Line  -  two points" />
-                            <RadioButton x:Name="PolylineTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="PolylineButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Polyline}" ToolTip="Polyline  -  any number of points, Enter or right-click to finish" />
-                            <RadioButton x:Name="RectangleTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="RectangleButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Rectangle}" ToolTip="Rectangle  -  two opposite corners" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  needs a side count to ask for, so it waits for command input" />
-                            <RadioButton x:Name="CircleTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="CircleButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Circle}" ToolTip="Circle  -  centre, then a point on the rim" />
-                            <RadioButton x:Name="ArcTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="ArcButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Arc}" ToolTip="Arc  -  start, a point on the arc, then the end" />
-                            <RadioButton x:Name="EllipseTool" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                            <RadioButton x:Name="EllipseButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Ellipse}" ToolTip="Ellipse  -  centre, the end of the major axis, then the minor" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Spline}" ToolTip="Spline  -  arrives with the draw tools (E4)" />

@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -97,5 +98,12 @@ public sealed class SHatch : SceneEntity
             if (Intersect.SegmentWithRect(segment.A, segment.B, rect)) return true;
 
         return false;
+    }
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        // None. A hatch boundary is derived from the objects around it and
+        // already flattened, so its vertices are neither authoritative nor
+        // few -- a pattern fill would offer thousands of useless points.
     }
 }

@@ -14,6 +14,10 @@ a window to find out. With `FREEDWG_TEST_RENDERS` set it also writes
 `icons.png`, a labelled contact sheet — which is how to tell an icon that
 parses from an icon that reads.
 
+**`SnapTests`** asserts exact equality on snapped points rather than
+nearness, which is the whole point: two lines that meet to within a pixel are
+two lines that do not meet.
+
 **`CommandTests` and `ToolTests`** are arithmetic too: what each tool builds
 from the points it is given, and that undo puts a drawing back exactly,
 entity order included. `CanvasTests` then drives the real `CadCanvas` through

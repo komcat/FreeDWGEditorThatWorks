@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -31,4 +32,19 @@ public sealed class SCircle : SceneEntity
 
     public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
         Intersect.CircleWithRect(Center, Radius, rect);
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (modes.HasFlag(SnapModes.Center))
+            into.Add(new SnapCandidate(Center, SnapKind.Center));
+
+        if (!modes.HasFlag(SnapModes.Quadrant) || Radius <= 0) return;
+
+        // Right, top, left, bottom: the four points a circle is dimensioned
+        // from, and what makes one circle land tangent to another.
+        into.Add(new SnapCandidate(new Vec2(Center.X + Radius, Center.Y), SnapKind.Quadrant));
+        into.Add(new SnapCandidate(new Vec2(Center.X, Center.Y + Radius), SnapKind.Quadrant));
+        into.Add(new SnapCandidate(new Vec2(Center.X - Radius, Center.Y), SnapKind.Quadrant));
+        into.Add(new SnapCandidate(new Vec2(Center.X, Center.Y - Radius), SnapKind.Quadrant));
+    }
 }

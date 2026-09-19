@@ -6,7 +6,9 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Tools;
+using FreeDWGEditorThatWorks.Controls;
 using FreeDwg.Interop.Acad;
 using FreeDWGEditorThatWorks.ViewModels;
 using Microsoft.Win32;
@@ -21,6 +23,13 @@ public partial class MainWindow : Window
     private static readonly Rgb LightBackground = new(255, 255, 255);
 
     private readonly ObservableCollection<LayerItem> _layers = new();
+
+    /// <summary>
+    /// The tool buttons, so exactly one can be lit. The canvas owns which
+    /// mode is in force; this list is only how that is shown.
+    /// </summary>
+    private readonly RadioButton[] _toolButtons;
+
     private ImportDiagnostics? _diagnostics;
     private string _documentName = "Untitled";
 
@@ -30,18 +39,25 @@ public partial class MainWindow : Window
 
         LayerList.ItemsSource = _layers;
 
+        _toolButtons =
+        [
+            SelectButton, LineButton, PolylineButton, RectangleButton,
+            CircleButton, ArcButton, EllipseButton,
+        ];
+
         Canvas.CursorMoved += (_, world) =>
             CoordinateText.Text = $"X {world.X,12:0.###}   Y {world.Y,12:0.###}";
 
         Canvas.SelectionChanged += (_, _) => UpdateStatus();
 
-        // The canvas owns whether a zoom window is still pending; the toggle
-        // only reflects it, so that Escape or a stray click releases both.
-        Canvas.ZoomWindowDisarmed += (_, _) => ZoomWindowToggle.IsChecked = false;
-
-        // A tool asking for its next point, and an edit landing, both change
-        // what the status bar and the undo buttons should say.
-        Canvas.ToolChanged += (_, _) => UpdateStatus();
+        // The canvas owns what a left click does; every button that claims to
+        // set a mode is only a view of that. Syncing them all from one event
+        // is what stops two of them being lit at once.
+        Canvas.ModeChanged += (_, _) =>
+        {
+            SyncModeButtons();
+            UpdateStatus();
+        };
         Canvas.DrawingEdited += (_, _) =>
         {
             if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
@@ -50,6 +66,8 @@ public partial class MainWindow : Window
             UpdateStatus();
             UpdateEmptyHint();
         };
+
+        Canvas.Snapping.Modes = SnapModes.Objects;
 
         InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(NewDrawing), Key.N, ModifierKeys.Control));
@@ -81,8 +99,8 @@ public partial class MainWindow : Window
 
         PopulateLayouts(drawing);
         PopulateLayers(drawing);
-        SelectTool.IsChecked = true;
-        Canvas.Tool = null;
+        Canvas.UseSelect();
+        Canvas.UseSelect();
 
         UpdateHistoryButtons();
         UpdateTitle();
@@ -102,19 +120,85 @@ public partial class MainWindow : Window
 
     private void OnToolPicked(object sender, RoutedEventArgs e)
     {
-        Canvas.Tool = (sender as FrameworkElement)?.Name switch
+        DrawTool? tool = (sender as FrameworkElement)?.Name switch
         {
-            nameof(LineTool) => new LineTool(),
-            nameof(PolylineTool) => new PolylineTool(),
-            nameof(RectangleTool) => new RectangleTool(),
-            nameof(CircleTool) => new CircleTool(),
-            nameof(ArcTool) => new ArcTool(),
-            nameof(EllipseTool) => new EllipseTool(),
+            nameof(LineButton) => new LineTool(),
+            nameof(PolylineButton) => new PolylineTool(),
+            nameof(RectangleButton) => new RectangleTool(),
+            nameof(CircleButton) => new CircleTool(),
+            nameof(ArcButton) => new ArcTool(),
+            nameof(EllipseButton) => new EllipseTool(),
             _ => null,
         };
 
+        if (tool is null) Canvas.UseSelect();
+        else Canvas.UseTool(tool);
+
         Canvas.Focus();
-        UpdateStatus();
+    }
+
+    /// <summary>
+    /// Lights exactly the button that matches the canvas's mode, and unlights
+    /// every other one.
+    /// </summary>
+    /// <remarks>
+    /// The bug this replaces: a tool and the zoom window were separate flags,
+    /// so both buttons could be lit while only one of them decided what a
+    /// click did. Reading the state back out of the canvas rather than
+    /// setting it in two places is what makes that impossible.
+    /// </remarks>
+    private void SyncModeButtons()
+    {
+        ZoomWindowToggle.IsChecked = Canvas.Mode == CanvasMode.ZoomWindow;
+
+        RadioButton? active = Canvas.Mode switch
+        {
+            CanvasMode.Select => SelectButton,
+            CanvasMode.Draw => ButtonFor(Canvas.Tool),
+            _ => null,
+        };
+
+        foreach (var button in _toolButtons)
+            button.IsChecked = ReferenceEquals(button, active);
+    }
+
+    private RadioButton? ButtonFor(DrawTool? tool) => tool switch
+    {
+        LineTool => LineButton,
+        PolylineTool => PolylineButton,
+        RectangleTool => RectangleButton,
+        CircleTool => CircleButton,
+        ArcTool => ArcButton,
+        EllipseTool => EllipseButton,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The grid switch does both jobs: showing it and snapping to it. They
+    /// are separate settings in AutoCAD, which is two things to explain and
+    /// a standing source of "why is it not snapping to the grid I can see".
+    /// </summary>
+    private void OnGridToggled(object sender, RoutedEventArgs e)
+    {
+        Canvas.Snapping.Grid.IsVisible = GridToggle.IsChecked == true;
+        OnSnapToggled(sender, e);
+    }
+
+    private void OnSnapToggled(object sender, RoutedEventArgs e)
+    {
+        var modes = SnapModes.None;
+
+        if (EndpointSnapToggle.IsChecked == true) modes |= SnapModes.Endpoint;
+        if (MidpointSnapToggle.IsChecked == true) modes |= SnapModes.Midpoint;
+        if (CenterSnapToggle.IsChecked == true) modes |= SnapModes.Center;
+        if (QuadrantSnapToggle.IsChecked == true) modes |= SnapModes.Quadrant;
+        if (GridToggle.IsChecked == true) modes |= SnapModes.Grid;
+
+        Canvas.Snapping.Modes = modes;
+        Canvas.Snapping.Ortho = OrthoToggle.IsChecked == true;
+
+        Canvas.Redraw();
+        Canvas.Focus();
     }
 
     private void OnEraseClick(object sender, RoutedEventArgs e)
@@ -178,7 +262,7 @@ public partial class MainWindow : Window
 
             PopulateLayouts(drawing);
             PopulateLayers(drawing);
-            SelectTool.IsChecked = true;
+            Canvas.UseSelect();
 
             UpdateHistoryButtons();
             UpdateTitle();
@@ -265,8 +349,10 @@ public partial class MainWindow : Window
 
     private void OnZoomWindowToggled(object sender, RoutedEventArgs e)
     {
-        Canvas.ZoomWindowArmed = ZoomWindowToggle.IsChecked == true;
-        if (Canvas.ZoomWindowArmed) Canvas.Focus();
+        if (ZoomWindowToggle.IsChecked == true) Canvas.UseZoomWindow();
+        else Canvas.UseSelect();
+
+        Canvas.Focus();
     }
 
     private void OnLineweightsToggled(object sender, RoutedEventArgs e)

@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -141,5 +142,41 @@ public sealed class SPolyline : SceneEntity
         }
 
         return false;
+    }
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (Vertices.Length == 0) return;
+
+        if (modes.HasFlag(SnapModes.Endpoint))
+            foreach (var vertex in Vertices)
+                into.Add(new SnapCandidate(vertex.Point, SnapKind.Endpoint));
+
+        bool wantsMid = modes.HasFlag(SnapModes.Midpoint);
+        bool wantsCenter = modes.HasFlag(SnapModes.Center);
+        if (!wantsMid && !wantsCenter) return;
+
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            var from = Vertices[i];
+            Vec2 to = Vertices[(i + 1) % Vertices.Length].Point;
+
+            if (Math.Abs(from.Bulge) < 1e-12)
+            {
+                if (wantsMid) into.Add(new SnapCandidate(Vec2.Lerp(from.Point, to, 0.5), SnapKind.Midpoint));
+                continue;
+            }
+
+            // A bulged segment is an arc, so its midpoint is on the arc and
+            // not on the chord -- the two are a whole sagitta apart.
+            var (center, radius, startAngle, sweep) = ArcMath.FromBulge(from.Point, to, from.Bulge);
+            if (radius <= 0) continue;
+
+            if (wantsMid)
+                into.Add(new SnapCandidate(
+                    ArcMath.PointAt(center, radius, startAngle + sweep / 2), SnapKind.Midpoint));
+
+            if (wantsCenter) into.Add(new SnapCandidate(center, SnapKind.Center));
+        }
     }
 }

@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -76,5 +77,15 @@ public sealed class SSpline : SceneEntity
         if (ControlPoints.Count < 2 || !Bounds.Intersects(rect)) return false;
 
         return Intersect.PolylineWithRect(Flatten(context.Tolerance), IsClosed, rect);
+    }
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        // The ends only. Control points are not on the curve, and offering
+        // one as a snap would put geometry where nothing is drawn.
+        if (!modes.HasFlag(SnapModes.Endpoint) || IsClosed || !IsEvaluable) return;
+
+        into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 0), SnapKind.Endpoint));
+        into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 1), SnapKind.Endpoint));
     }
 }

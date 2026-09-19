@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -118,5 +119,19 @@ public sealed class SInsert : SceneEntity
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The block's own snap points, moved into place. Symbols are the thing
+    /// most worth snapping to in a real drawing, so an insert that offered
+    /// nothing would make object snap close to useless.
+    /// </summary>
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        var local = new List<SnapCandidate>();
+        foreach (var child in Block.Entities) child.CollectSnapPoints(modes, local);
+
+        foreach (var candidate in local)
+            into.Add(candidate with { Point = Transform.Transform(candidate.Point) });
     }
 }

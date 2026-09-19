@@ -20,7 +20,8 @@ it. 165 tests pass in about half a second.
 | E1 | — | selection, hit testing and the spatial index |
 | — | — | icon toolbar and tool palette |
 | E2 | — | command stack, undo/redo, change log |
-| E4 | — | new documents and six draw tools (no snapping yet) |
+| E4 | — | new documents and six draw tools |
+| E4 | — | object snap, ortho, grid; one canvas mode |
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -128,6 +129,17 @@ previous tool had half-picked, and clears the selection, because drawing and
 selecting are different modes and carrying a selection into a draw tool only
 makes the next Delete a surprise.
 
+**One mode owns the left click.** `CadCanvas.Mode` is an enum — Select, Draw
+or ZoomWindow — and every way of changing it goes through one setter that
+raises one event. The shell redraws every mode button from that event rather
+than setting canvas state and button state side by side.
+
+That replaced a real bug. A tool flag and a separate `ZoomWindowArmed` flag
+could both be set: the toolbar showed a draw tool *and* zoom window lit,
+while only the tool actually decided what a click did. Two booleans that must
+never both be true are a bug waiting to be found, and this one was found by
+someone looking at the screenshot and asking which button was in charge.
+
 `CadCanvas.PickAt` and `PlaceToolPoint` take **world** coordinates and are
 public. The mouse handlers are thin wrappers over them, which is what lets
 `CanvasTests` drive a whole draw-select-erase-undo cycle without a mouse.
@@ -159,11 +171,9 @@ invalidating more carefully than they do now. `SceneEntity.InvalidateBounds`
 exists but nothing calls it yet, and nothing carries it up to the layout that
 indexed the entity. E3 is where that has to be sorted out.
 
-**E4 — Draw tools and snapping. Half done.** Line, polyline, rectangle,
+**E4 — Draw tools and snapping. Mostly done.** Line, polyline, rectangle,
 circle, three-point arc and ellipse all draw, on the current layer, through
-the command stack, with a live preview and undo. **Object snap is not
-written**, and it is the half that makes drafting actually usable — nothing
-here can yet be attached to anything already on the sheet.
+the command stack, with a live preview and undo, and they snap.
 
 A `DrawTool` takes world points and gives back a scene entity. It has no
 reference to a drawing at all, so it cannot reach past the command stack;
@@ -181,9 +191,36 @@ middle point says. `ArcMath.TryArcThrough` is the arithmetic, and the sign of
 the sweep it returns is the same trap as ever — left to right over the top is
 *clockwise*, and the tests state it both ways round.
 
-Still to do here: object snap, polygon (which needs somewhere to ask for a
-side count), text (which needs an editor), and trim/extend/fillet/chamfer,
-which all want curve-curve intersection that snapping will need anyway.
+**Object snap, ortho and the grid are in.** `Snapping/SnapEngine` resolves a
+cursor position into a point, and the order is strict rather than combined:
+object snap, then ortho, then grid. An object snap is the user pointing at a
+specific existing point and has to win outright — squaring it up afterwards
+would move it off the thing they aimed at.
+
+Entities offer their own snap points through `CollectSnapPoints`, which is
+the third thing they do for themselves after emitting and hit testing. A
+bulged polyline segment offers the midpoint of its *arc*, not of its chord;
+an arc offers only the quadrants its sweep actually reaches; a block instance
+offers its contents transformed into place, because symbols are the thing
+most worth snapping to in a real drawing. A hatch offers nothing: its
+boundary is derived and already flattened, so its vertices are neither
+authoritative nor few.
+
+The grid switch does both jobs — showing the grid and snapping to it. AutoCAD
+keeps GRID and SNAP apart, which is two settings to explain and a standing
+source of "why is it not snapping to the grid I can see". The spacing steps
+up by decades so that zooming out does not ask for a million lines, and you
+snap to the spacing you can see.
+
+The canvas draws the snap marker with the shapes AutoCAD uses — square for an
+endpoint, triangle for a midpoint, circle for a centre, diamond for a
+quadrant. That is not decoration: it is the only way to tell that a point
+landed on the thing you aimed at rather than a pixel away.
+
+Still to do here: intersection and perpendicular snaps, tangent, polygon
+(which needs somewhere to ask for a side count), text (which needs an
+editor), and trim/extend/fillet/chamfer, which all want the curve-curve
+intersection that an intersection snap would need anyway.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at
@@ -239,8 +276,8 @@ noticed:
   buttons in two did not fit a 700px window. A fourth group would want a real
   layout rather than another column.
 - There is no coordinate entry: every tool is mouse-only, so nothing can be
-  drawn to an exact size. That and object snap are the two things standing
-  between this and being usable for real work.
-- `CadCanvas.ZoomWindowArmed` is still a one-flag stand-in for a mode, living
-  beside the real tool state now. Fold it into `Tool` when something else
-  needs a transient mode.
+  drawn to an exact size. With snapping in, this is now the single biggest
+  thing between here and real work.
+- The snap search is a spatial-index query per mouse move, which is fine, but
+  it collects every candidate from every nearby entity before choosing. A
+  drawing with a very dense block under the cursor would feel it.

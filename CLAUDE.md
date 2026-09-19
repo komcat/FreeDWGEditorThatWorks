@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 220 tests, ~0.7s
+dotnet test                 # 246 tests, ~0.6s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -19,6 +19,7 @@ src/FreeDwg.Core/          net10.0          scene model, geometry, renderer
   Commands/                                 every mutation, undoably
   Tools/                                    draw tools, input-agnostic
   Picking/                                  hit testing, selection, spatial index
+  Snapping/                                 object snap, ortho, the grid
 src/FreeDwg.Interop.Acad/  net10.0          ACadSharp -> scene  (the only project that sees ACadSharp)
 src/FreeDWGEditorThatWorks/ net10.0-windows WPF shell, canvas, WPF sink
   Resources/Icons.xaml                      toolbar icons, as path data
@@ -60,6 +61,13 @@ with no WPF and no parser present. Do not add either reference to Core.
 - **A `DrawTool` takes world points and returns an entity.** It holds no
   reference to a drawing, so it *cannot* reach past the command stack. That
   also makes the whole set testable as arithmetic, with no mouse involved.
+- **Entities offer their own snap points** (`CollectSnapPoints`), the third
+  thing they do for themselves after emitting and hit testing.
+- **`CadCanvas.Mode` is the single answer to "what does a left click do".**
+  It is an enum and not a set of flags on purpose: the version with a tool
+  flag and a separate zoom-window flag let both be set, which lit two toolbar
+  buttons while only one of them decided anything. The toolbar is redrawn
+  from `ModeChanged` rather than set alongside the canvas.
 - Curves with no closed form re-sample per frame from
   `EmitContext.PixelsPerUnit` rather than being flattened at import, and from
   `PickContext.Tolerance` when they are being picked.

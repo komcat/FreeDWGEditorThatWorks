@@ -6,6 +6,7 @@ using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Scene;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Styling;
 using FreeDwg.Core.Tools;
 using FreeDWGEditorThatWorks.Rendering;
@@ -35,6 +36,8 @@ public sealed class CadCanvas : FrameworkElement
 
     private DrawTool? _tool;
     private Vec2 _cursor;
+    private Vec2 _snapped;
+    private SnapResult _snap;
 
     /// <summary>How far a click may miss by, in device pixels.</summary>
     private const double PickRadiusPixels = 6.0;
@@ -44,6 +47,27 @@ public sealed class CadCanvas : FrameworkElement
 
     /// <summary>Colour the tool draws in while the entity is still being picked.</summary>
     private static readonly Rgb PreviewColor = new(255, 190, 90);
+
+    /// <summary>How near the cursor a snap point has to be, in device pixels.</summary>
+    private const double SnapRadiusPixels = 12.0;
+
+    private static readonly Pen SnapPen = MakeSnapPen();
+    private static readonly Pen GridPen = MakeGridPen(60);
+    private static readonly Pen GridAxisPen = MakeGridPen(105);
+
+    private static Pen MakeSnapPen()
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromRgb(120, 230, 140)), 1.6);
+        pen.Freeze();
+        return pen;
+    }
+
+    private static Pen MakeGridPen(byte alpha)
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 128, 140, 155)), 1.0);
+        pen.Freeze();
+        return pen;
+    }
 
     private static readonly Pen WindowPen = MakeBandPen(Color.FromRgb(90, 150, 255), dashed: false);
     private static readonly Pen CrossingPen = MakeBandPen(Color.FromRgb(110, 220, 120), dashed: true);
@@ -91,27 +115,50 @@ public sealed class CadCanvas : FrameworkElement
     public CommandStack? Commands { get; private set; }
 
     /// <summary>
-    /// The tool in force, or null for the pointer. Setting it abandons
-    /// whatever the previous tool had half-picked.
+    /// The tool in force, or null unless <see cref="Mode"/> is
+    /// <see cref="CanvasMode.Draw"/>.
     /// </summary>
-    public DrawTool? Tool
+    public DrawTool? Tool => _tool;
+
+    /// <summary>
+    /// What a left click does. Exactly one thing, always.
+    /// </summary>
+    /// <remarks>
+    /// This exists because the alternative did not work: a tool flag and a
+    /// separate zoom-window flag could both be set, leaving two buttons lit
+    /// and one of them lying about what the next click would do. One field,
+    /// one setter, one event -- so the toolbar cannot disagree with the
+    /// canvas even if a caller forgets to reset something.
+    /// </remarks>
+    public CanvasMode Mode { get; private set; } = CanvasMode.Select;
+
+    /// <summary>Object snap, ortho and the grid.</summary>
+    public SnapEngine Snapping { get; } = new();
+
+    /// <summary>Back to the pointer.</summary>
+    public void UseSelect() => SetMode(CanvasMode.Select, null);
+
+    /// <summary>Starts drawing with <paramref name="tool"/>.</summary>
+    public void UseTool(DrawTool tool) => SetMode(CanvasMode.Draw, tool);
+
+    /// <summary>Arms a one-shot zoom window; the next drag frames the view.</summary>
+    public void UseZoomWindow() => SetMode(CanvasMode.ZoomWindow, null);
+
+    private void SetMode(CanvasMode mode, DrawTool? tool)
     {
-        get => _tool;
-        set
-        {
-            _tool?.Cancel();
-            _tool = value;
+        _tool?.Cancel();
+        _tool = tool;
+        Mode = mode;
 
-            if (_tool is not null)
-            {
-                Selection.Clear();
-                ZoomWindowArmed = false;
-            }
+        // Drawing and selecting are different modes, and carrying a selection
+        // into a draw tool only makes the next Delete a surprise.
+        if (mode != CanvasMode.Select) Selection.Clear();
 
-            Cursor = _tool is null ? Cursors.Arrow : Cursors.Cross;
-            InvalidateVisual();
-            ToolChanged?.Invoke(this, EventArgs.Empty);
-        }
+        _snap = default;
+        Cursor = mode == CanvasMode.Select ? Cursors.Arrow : Cursors.Cross;
+
+        InvalidateVisual();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>What the tool wants next, for the status bar.</summary>
@@ -120,14 +167,34 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Pick tolerance in world units at the current zoom.</summary>
     public double PickTolerance => Camera.Scale > 0 ? PickRadiusPixels / Camera.Scale : 0;
 
-    /// <summary>
-    /// When set, the next dragged rectangle frames the view instead of
-    /// selecting. One shot: it disarms itself, as AutoCAD's zoom window does.
-    /// </summary>
-    public bool ZoomWindowArmed { get; set; }
+    /// <summary>Snap radius in world units at the current zoom.</summary>
+    public double SnapTolerance => Camera.Scale > 0 ? SnapRadiusPixels / Camera.Scale : 0;
 
-    /// <summary>Fires when an armed zoom window is used up or abandoned.</summary>
-    public event EventHandler? ZoomWindowDisarmed;
+    /// <summary>Where the snap marker is showing, if one is.</summary>
+    public SnapResult ActiveSnap => _snap;
+
+    /// <summary>
+    /// Where a point picked at <paramref name="world"/> actually lands, once
+    /// object snap, ortho and the grid have had their say.
+    /// </summary>
+    /// <remarks>
+    /// Everything that turns a cursor position into a point goes through
+    /// here -- the preview and the committed point both -- so what is drawn
+    /// under the cursor is exactly what gets built.
+    /// </remarks>
+    public Vec2 ResolvePoint(Vec2 world)
+    {
+        if (_drawing is null) return world;
+
+        Vec2? from = _tool is { InProgress: true } tool ? tool.Points[^1] : null;
+
+        _snap = Snapping.Resolve(_drawing.ActiveLayout, _drawing.Layers,
+            world, SnapTolerance, from, Camera.Scale);
+
+        return _snap.Point;
+    }
+
+    private bool ZoomWindowArmed => Mode == CanvasMode.ZoomWindow;
 
     /// <summary>Fires with the cursor position in world units.</summary>
     public event EventHandler<Vec2>? CursorMoved;
@@ -138,8 +205,12 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Fires after the selection changes, for the same reason.</summary>
     public event EventHandler? SelectionChanged;
 
-    /// <summary>Fires when the active tool changes, or wants a different point.</summary>
-    public event EventHandler? ToolChanged;
+    /// <summary>
+    /// Fires when the mode or the active tool changes, or when the tool wants
+    /// a different point. The shell syncs every toolbar button from this, so
+    /// there is one source of truth for what is lit.
+    /// </summary>
+    public event EventHandler? ModeChanged;
 
     /// <summary>Fires after the drawing is edited, so the shell can refresh counts.</summary>
     public event EventHandler? DrawingEdited;
@@ -150,7 +221,7 @@ public sealed class CadCanvas : FrameworkElement
         set
         {
             _drawing = value;
-            Tool = null;
+            SetMode(CanvasMode.Select, null);
             Selection.Clear();
 
             // The stack describes one document; a new document starts clean.
@@ -197,12 +268,96 @@ public sealed class CadCanvas : FrameworkElement
         if (_drawing is null) return;
 
         SyncViewport();
+
+        // Under the scene: a grid drawn over the drawing would compete with it.
+        if (Snapping.Grid.IsVisible) DrawGrid(dc);
+
         var sink = new WpfDrawingSink(dc, Camera, Settings, VisualTreeHelper.GetDpi(this).PixelsPerDip);
         LastStats = SceneRenderer.Render(_drawing, Camera, sink,
             Selection.IsEmpty ? null : Selection.Entities, Settings);
 
         if (_tool is not null) DrawToolPreview(sink);
         if (_isBanding) DrawSelectionBand(dc);
+        if (_snap.Found && Mode == CanvasMode.Draw) DrawSnapMarker(dc);
+    }
+
+    /// <summary>
+    /// The grid, in device space and thinned to suit the zoom. Drawing it
+    /// through the sink would put it in the scene's coordinate space and its
+    /// line weights, when what it wants is one hairline whatever the zoom.
+    /// </summary>
+    private void DrawGrid(DrawingContext dc)
+    {
+        double spacing = Snapping.Grid.EffectiveSpacing(Camera.Scale);
+        if (spacing <= 0) return;
+
+        var visible = Camera.VisibleWorldBounds;
+
+        foreach (double x in Grid.LinesAcross(visible.MinX, visible.MaxX, spacing))
+        {
+            double device = Camera.WorldToScreen(new Vec2(x, 0)).X;
+            var pen = Math.Abs(x) < spacing / 2 ? GridAxisPen : GridPen;
+            dc.DrawLine(pen, new Point(device, 0), new Point(device, ActualHeight));
+        }
+
+        foreach (double y in Grid.LinesAcross(visible.MinY, visible.MaxY, spacing))
+        {
+            double device = Camera.WorldToScreen(new Vec2(0, y)).Y;
+            var pen = Math.Abs(y) < spacing / 2 ? GridAxisPen : GridPen;
+            dc.DrawLine(pen, new Point(0, device), new Point(ActualWidth, device));
+        }
+    }
+
+    /// <summary>
+    /// The marker for whatever the cursor has caught: a square for an
+    /// endpoint, a triangle for a midpoint, a circle for a centre, a diamond
+    /// for a quadrant. Not decoration -- it is the only way to tell that a
+    /// point landed on the thing you aimed at rather than a pixel away.
+    /// </summary>
+    private void DrawSnapMarker(DrawingContext dc)
+    {
+        Vec2 at = Camera.WorldToScreen(_snap.Point);
+        const double r = 5.0;
+
+        switch (_snap.Kind)
+        {
+            case SnapKind.Endpoint:
+                dc.DrawRectangle(null, SnapPen, new Rect(at.X - r, at.Y - r, r * 2, r * 2));
+                return;
+
+            case SnapKind.Midpoint:
+                DrawPolygon(dc, [(at.X - r, at.Y + r), (at.X, at.Y - r), (at.X + r, at.Y + r)]);
+                return;
+
+            case SnapKind.Center:
+                dc.DrawEllipse(null, SnapPen, new Point(at.X, at.Y), r, r);
+                return;
+
+            case SnapKind.Quadrant:
+                DrawPolygon(dc, [(at.X, at.Y - r * 1.3), (at.X + r * 1.3, at.Y),
+                                 (at.X, at.Y + r * 1.3), (at.X - r * 1.3, at.Y)]);
+                return;
+
+            case SnapKind.Grid:
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y), new Point(at.X + r, at.Y));
+                dc.DrawLine(SnapPen, new Point(at.X, at.Y - r), new Point(at.X, at.Y + r));
+                return;
+        }
+    }
+
+    private static void DrawPolygon(DrawingContext dc, (double X, double Y)[] points)
+    {
+        var geometry = new StreamGeometry();
+
+        using (var figure = geometry.Open())
+        {
+            figure.BeginFigure(new Point(points[0].X, points[0].Y), isFilled: false, isClosed: true);
+            for (int i = 1; i < points.Length; i++)
+                figure.LineTo(new Point(points[i].X, points[i].Y), isStroked: true, isSmoothJoin: false);
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(null, SnapPen, geometry);
     }
 
     /// <summary>
@@ -216,7 +371,7 @@ public sealed class CadCanvas : FrameworkElement
         if (_tool is null || !_tool.InProgress || _drawing is null) return;
 
         var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
-        _tool.Preview(_cursor, context, new DisplayStyle(PreviewColor, Lineweight.Default));
+        _tool.Preview(_snapped, context, new DisplayStyle(PreviewColor, Lineweight.Default));
     }
 
     /// <summary>
@@ -274,10 +429,10 @@ public sealed class CadCanvas : FrameworkElement
         if (_drawing is null) return;
 
         // A tool takes its points on the way down, and never bands.
-        if (_tool is not null && e.ChangedButton == MouseButton.Left)
+        if (Mode == CanvasMode.Draw && e.ChangedButton == MouseButton.Left)
         {
             Point picked = e.GetPosition(this);
-            PlaceToolPoint(Camera.ScreenToWorld(new Vec2(picked.X, picked.Y)));
+            PlaceToolPoint(ResolvePoint(Camera.ScreenToWorld(new Vec2(picked.X, picked.Y))));
             e.Handled = true;
             return;
         }
@@ -310,6 +465,10 @@ public sealed class CadCanvas : FrameworkElement
 
         _cursor = Camera.ScreenToWorld(new Vec2(p.X, p.Y));
 
+        // Resolving on every move is what puts the marker under the cursor
+        // before the click rather than after it.
+        _snapped = Mode == CanvasMode.Draw ? ResolvePoint(_cursor) : _cursor;
+
         if (_isPanning)
         {
             // A right button that only ever went down and up is a click, not
@@ -320,9 +479,10 @@ public sealed class CadCanvas : FrameworkElement
             _panAnchor = p;
             Redraw();
         }
-        else if (_tool is { InProgress: true })
+        else if (Mode == CanvasMode.Draw)
         {
-            // The preview follows the cursor, so every move is a repaint.
+            // The preview and the snap marker both follow the cursor, so
+            // every move is a repaint.
             InvalidateVisual();
         }
         else if (e.LeftButton == MouseButtonState.Pressed && IsMouseCaptured)
@@ -420,18 +580,17 @@ public sealed class CadCanvas : FrameworkElement
         {
             _tool.Cancel();
             InvalidateVisual();
-            ToolChanged?.Invoke(this, EventArgs.Empty);
+            ModeChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
-        if (_tool is not null)
+        if (Mode != CanvasMode.Select)
         {
-            Tool = null;
+            UseSelect();
             return;
         }
 
-        if (ZoomWindowArmed) Disarm();
-        else Selection.Clear();
+        Selection.Clear();
     }
 
     // ---- editing --------------------------------------------------------
@@ -447,7 +606,7 @@ public sealed class CadCanvas : FrameworkElement
         Commit(_tool.Click(world));
 
         InvalidateVisual();
-        ToolChanged?.Invoke(this, EventArgs.Empty);
+        ModeChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Ends an open-ended tool, as Enter or a right click does.</summary>
@@ -458,7 +617,7 @@ public sealed class CadCanvas : FrameworkElement
         Commit(_tool.Finish());
 
         InvalidateVisual();
-        ToolChanged?.Invoke(this, EventArgs.Empty);
+        ModeChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -512,11 +671,7 @@ public sealed class CadCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    private void Disarm()
-    {
-        ZoomWindowArmed = false;
-        ZoomWindowDisarmed?.Invoke(this, EventArgs.Empty);
-    }
+    private void Disarm() => UseSelect();
 
     /// <summary>
     /// Picks whatever is at a world point, as a click does.

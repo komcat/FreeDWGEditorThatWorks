@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -26,4 +27,16 @@ public sealed class SLine : SceneEntity
 
     public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
         Intersect.SegmentWithRect(Start, End, rect);
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (modes.HasFlag(SnapModes.Endpoint))
+        {
+            into.Add(new SnapCandidate(Start, SnapKind.Endpoint));
+            into.Add(new SnapCandidate(End, SnapKind.Endpoint));
+        }
+
+        if (modes.HasFlag(SnapModes.Midpoint))
+            into.Add(new SnapCandidate(Vec2.Lerp(Start, End, 0.5), SnapKind.Midpoint));
+    }
 }

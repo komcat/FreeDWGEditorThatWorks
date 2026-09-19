@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -74,5 +75,34 @@ public sealed class SEllipse : SceneEntity
         if (MajorAxis.LengthSquared <= 0 || Math.Abs(Sweep) < 1e-12) return false;
         if (!Bounds.Intersects(rect)) return false;
         return Intersect.PolylineWithRect(Flatten(context.Tolerance), IsClosed, rect);
+    }
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (MajorAxis.LengthSquared <= 0) return;
+
+        if (modes.HasFlag(SnapModes.Center))
+            into.Add(new SnapCandidate(Center, SnapKind.Center));
+
+        if (modes.HasFlag(SnapModes.Endpoint) && !IsClosed)
+        {
+            into.Add(new SnapCandidate(
+                EllipseMath.PointAt(Center, MajorAxis, Ratio, StartParameter), SnapKind.Endpoint));
+            into.Add(new SnapCandidate(
+                EllipseMath.PointAt(Center, MajorAxis, Ratio, StartParameter + Sweep), SnapKind.Endpoint));
+        }
+
+        if (!modes.HasFlag(SnapModes.Quadrant)) return;
+
+        // The ends of the two axes, which for a rotated ellipse are not the
+        // top and sides of its bounding box.
+        for (int quarter = 0; quarter < 4; quarter++)
+        {
+            double parameter = quarter * (Math.PI / 2);
+            if (!IsClosed && !ArcMath.Contains(parameter, StartParameter, Sweep)) continue;
+
+            into.Add(new SnapCandidate(
+                EllipseMath.PointAt(Center, MajorAxis, Ratio, parameter), SnapKind.Quadrant));
+        }
     }
 }

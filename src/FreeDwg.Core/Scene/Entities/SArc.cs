@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -52,4 +53,33 @@ public sealed class SArc : SceneEntity
 
     public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
         Intersect.ArcWithRect(Center, Radius, StartAngle, Sweep, rect, context.Tolerance);
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (Radius <= 0) return;
+
+        if (modes.HasFlag(SnapModes.Endpoint))
+        {
+            into.Add(new SnapCandidate(StartPoint, SnapKind.Endpoint));
+            into.Add(new SnapCandidate(EndPoint, SnapKind.Endpoint));
+        }
+
+        if (modes.HasFlag(SnapModes.Midpoint))
+            into.Add(new SnapCandidate(
+                ArcMath.PointAt(Center, Radius, StartAngle + Sweep / 2), SnapKind.Midpoint));
+
+        if (modes.HasFlag(SnapModes.Center))
+            into.Add(new SnapCandidate(Center, SnapKind.Center));
+
+        if (!modes.HasFlag(SnapModes.Quadrant)) return;
+
+        // Only the quadrants the arc actually reaches: an arc has no left
+        // side to snap to if it never gets there.
+        for (int quadrant = 0; quadrant < 4; quadrant++)
+        {
+            double angle = quadrant * (Math.PI / 2);
+            if (ArcMath.Contains(angle, StartAngle, Sweep))
+                into.Add(new SnapCandidate(ArcMath.PointAt(Center, Radius, angle), SnapKind.Quadrant));
+        }
+    }
 }

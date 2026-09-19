@@ -1,5 +1,6 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
+using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -118,4 +119,16 @@ public sealed class SViewport : SceneEntity
 
     public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
         !PaperRect.IsEmpty && Intersect.PolylineWithRect(Distance.Corners(PaperRect), closed: true, rect);
+
+    public override void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into)
+    {
+        if (PaperRect.IsEmpty) return;
+
+        if (modes.HasFlag(SnapModes.Endpoint))
+            foreach (var corner in Distance.Corners(PaperRect))
+                into.Add(new SnapCandidate(corner, SnapKind.Endpoint));
+
+        if (modes.HasFlag(SnapModes.Center))
+            into.Add(new SnapCandidate(PaperRect.Center, SnapKind.Center));
+    }
 }
