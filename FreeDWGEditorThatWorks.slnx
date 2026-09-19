@@ -1,3 +1,7 @@
 <Solution>
-  <Project Path="FreeDWGEditorThatWorks.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/FreeDwg.Core/FreeDwg.Core.csproj" />
+    <Project Path="src/FreeDwg.Interop.Acad/FreeDwg.Interop.Acad.csproj" />
+    <Project Path="src/FreeDWGEditorThatWorks/FreeDWGEditorThatWorks.csproj" />
+  </Folder>
 </Solution>
