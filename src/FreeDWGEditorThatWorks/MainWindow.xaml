@@ -1,4 +1,4 @@
-<Window x:Class="FreeDWGEditorThatWorks.MainWindow"
+﻿<Window x:Class="FreeDWGEditorThatWorks.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -7,21 +7,48 @@
         mc:Ignorable="d"
         Title="FreeDWG Editor" Height="700" Width="1100">
     <DockPanel>
-        <ToolBarTray DockPanel.Dock="Top" IsLocked="True">
-            <ToolBar>
-                <Button Content="Open..." Padding="10,2" Click="OnOpenClick"
-                        ToolTip="Open a DWG or DXF drawing (Ctrl+O)" />
-                <Separator />
-                <Button Content="Zoom Extents" Padding="10,2" Click="OnZoomExtentsClick"
-                        ToolTip="Fit the whole drawing in the viewport" />
-                <Separator />
-                <CheckBox x:Name="LineweightsToggle" Content="Lineweights" VerticalAlignment="Center"
-                          Margin="4,0" Click="OnLineweightsToggled"
-                          ToolTip="Show plot widths instead of hairlines" />
-                <CheckBox x:Name="LightBackgroundToggle" Content="Light background" VerticalAlignment="Center"
-                          Margin="8,0" Click="OnBackgroundToggled" />
-            </ToolBar>
-        </ToolBarTray>
+        <!--
+            Icons rather than words: the text toolbar ran out of room at four
+            buttons, and a drawing tool that spells out its commands is a
+            drawing tool nobody has used before.
+
+            A plain panel rather than a ToolBar, because ToolBar insists on an
+            overflow chevron and a drag gripper this window has no use for. It
+            showed the chevron with eight buttons and room to spare.
+        -->
+        <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1"
+                BorderBrush="{StaticResource Tool.Divider}" Background="#FFF7F9FC">
+            <StackPanel Orientation="Horizontal" Margin="4,3">
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Open}"
+                        Click="OnOpenClick" ToolTip="Open a DWG or DXF drawing  (Ctrl+O)" />
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Save}"
+                        IsEnabled="False" ToolTip="Save  -  arrives with E5, which applies edits back onto the original document" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Undo}"
+                        IsEnabled="False" ToolTip="Undo  -  arrives with the command stack (E2)" />
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Redo}"
+                        IsEnabled="False" ToolTip="Redo  -  arrives with the command stack (E2)" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.ZoomExtents}"
+                        Click="OnZoomExtentsClick" ToolTip="Zoom extents  -  fit the whole drawing in the viewport" />
+                <ToggleButton x:Name="ZoomWindowToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.ZoomWindow}" Click="OnZoomWindowToggled"
+                              ToolTip="Zoom window  -  drag a rectangle to zoom into it" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <ToggleButton x:Name="LineweightsToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.Lineweights}" Click="OnLineweightsToggled"
+                              ToolTip="Lineweights  -  show plot widths instead of hairlines" />
+                <ToggleButton x:Name="LightBackgroundToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.Background}" Click="OnBackgroundToggled"
+                              ToolTip="Light background" />
+            </StackPanel>
+        </Border>
 
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
@@ -34,12 +61,98 @@
 
         <Grid>
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition x:Name="LayerColumn" Width="230" MinWidth="140" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="200" />
             </Grid.ColumnDefinitions>
 
-            <DockPanel Grid.Column="0" Margin="4">
+            <!--
+                Draw and Modify, in AutoCAD's own order so that muscle memory
+                transfers. Three columns because one would be 28 buttons tall and
+                run off the bottom of a 700px window; two still needed a scrollbar.
+
+                Everything but the pointer is disabled on purpose: a tool has
+                to mutate the scene, and the rule is that nothing mutates it
+                except through the command stack, which is E2. The buttons are
+                here now because the palette is what the shell is laid out
+                around, and its tooltips say what each one is waiting for.
+            -->
+            <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{StaticResource Tool.Divider}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="2,0,2,6">
+                        <TextBlock Text="Draw" Style="{StaticResource PaletteGroupLabel}" />
+
+                        <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
+                            <RadioButton x:Name="SelectTool" GroupName="Tool" Style="{StaticResource ToolToggle}"
+                                         Tag="{StaticResource Icon.Select}" IsChecked="True"
+                                         ToolTip="Select  -  click to pick, drag left to right for a window, right to left to cross" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Line}" ToolTip="Line  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Polyline}" ToolTip="Polyline  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Rectangle}" ToolTip="Rectangle  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Circle}" ToolTip="Circle  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Arc}" ToolTip="Arc  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Ellipse}" ToolTip="Ellipse  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Spline}" ToolTip="Spline  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Point}" ToolTip="Point  -  POINT is not imported yet either" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Hatch}" ToolTip="Hatch  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Text}" ToolTip="Text  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Block}" ToolTip="Insert block  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Dimension}" ToolTip="Dimension  -  needs real dimension layout, which is E5" />
+                        </UniformGrid>
+
+                        <Separator Margin="4,8" Background="{StaticResource Tool.Divider}" />
+                        <TextBlock Text="Modify" Style="{StaticResource PaletteGroupLabel}" />
+
+                        <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Erase}" ToolTip="Erase  -  arrives with the command stack (E2)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Move}" ToolTip="Move  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Copy}" ToolTip="Copy  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Rotate}" ToolTip="Rotate  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Scale}" ToolTip="Scale  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Mirror}" ToolTip="Mirror  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Offset}" ToolTip="Offset  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Array}" ToolTip="Array  -  arrives with the draw tools (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  needs curve intersection, which comes with snapping (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  needs curve intersection, which comes with snapping (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  needs curve intersection, which comes with snapping (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  needs curve intersection, which comes with snapping (E4)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  arrives with grips (E3)" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.Explode}" ToolTip="Explode  -  arrives with the command stack (E2)" />
+                        </UniformGrid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <DockPanel Grid.Column="1" Margin="4">
                 <Grid DockPanel.Dock="Top" Margin="2,2,2,6">
                     <TextBlock Text="Layers" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <TextBlock x:Name="LayerCountText" HorizontalAlignment="Right" Opacity="0.6"
@@ -77,10 +190,10 @@
                 </ListBox>
             </DockPanel>
 
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+            <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch"
                           Background="Transparent" />
 
-            <Grid Grid.Column="2">
+            <Grid Grid.Column="3">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
@@ -91,7 +204,7 @@
                 <TextBlock x:Name="EmptyHint" Grid.Row="0"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="#7F8C99" FontSize="15" IsHitTestVisible="False"
-                           Text="Open a .dwg or .dxf to begin&#x0a;Scroll to zoom, drag to pan"
+                           Text="Open a .dwg or .dxf to begin&#x0a;Scroll to zoom, middle-drag to pan, click to select"
                            TextAlignment="Center" />
 
                 <!-- Model and paper space sheets, in tab order, as in AutoCAD. -->
@@ -114,3 +227,4 @@
         </Grid>
     </DockPanel>
 </Window>
+

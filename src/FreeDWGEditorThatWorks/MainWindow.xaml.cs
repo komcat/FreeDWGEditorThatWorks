@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -30,6 +30,12 @@ public partial class MainWindow : Window
 
         Canvas.CursorMoved += (_, world) =>
             CoordinateText.Text = $"X {world.X,12:0.###}   Y {world.Y,12:0.###}";
+
+        Canvas.SelectionChanged += (_, _) => UpdateStatus();
+
+        // The canvas owns whether a zoom window is still pending; the toggle
+        // only reflects it, so that Escape or a stray click releases both.
+        Canvas.ZoomWindowDisarmed += (_, _) => ZoomWindowToggle.IsChecked = false;
 
         InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
     }
@@ -94,6 +100,9 @@ public partial class MainWindow : Window
 
         drawing.ActiveLayout = layout;
 
+        // A selection belongs to the sheet it was made on.
+        Canvas.Selection.Clear();
+
         // Model space and a sheet are in different units and nowhere near each
         // other, so the view has to be reframed rather than kept.
         Canvas.ZoomExtents();
@@ -124,6 +133,12 @@ public partial class MainWindow : Window
 
     private void OnZoomExtentsClick(object sender, RoutedEventArgs e) => Canvas.ZoomExtents();
 
+    private void OnZoomWindowToggled(object sender, RoutedEventArgs e)
+    {
+        Canvas.ZoomWindowArmed = ZoomWindowToggle.IsChecked == true;
+        if (Canvas.ZoomWindowArmed) Canvas.Focus();
+    }
+
     private void OnLineweightsToggled(object sender, RoutedEventArgs e)
     {
         Canvas.Settings.ShowLineweights = LineweightsToggle.IsChecked == true;
@@ -150,9 +165,10 @@ public partial class MainWindow : Window
             ? ""
             : $"   |   {drawing.Blocks.Count} blocks";
         string layout = drawing is null ? "" : $"   |   {drawing.ActiveLayout.Name}";
+        string selected = Canvas.Selection.IsEmpty ? "" : $"   |   {Canvas.Selection.Count} selected";
 
         StatusText.Text =
-            $"{_diagnostics.Summary()}{blocks}{layout}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn";
+            $"{_diagnostics.Summary()}{blocks}{layout}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn{selected}";
     }
 
     /// <summary>Minimal ICommand shim so a keyboard shortcut can invoke an async method.</summary>

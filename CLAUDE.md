@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 126 tests, ~0.5s
+dotnet test                 # 170 tests, ~0.7s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -18,6 +18,8 @@ debug one. Read it before changing anything they cover.
 src/FreeDwg.Core/          net10.0          scene model, geometry, renderer
 src/FreeDwg.Interop.Acad/  net10.0          ACadSharp -> scene  (the only project that sees ACadSharp)
 src/FreeDWGEditorThatWorks/ net10.0-windows WPF shell, canvas, WPF sink
+  Resources/Icons.xaml                      toolbar icons, as path data
+  Resources/Toolbars.xaml                   the one button template they share
 tests/FreeDwg.Tests/       net10.0-windows  xunit
 docs/EDITOR-HANDOFF.md                      state of play and the plan for the editor phase
 ```
@@ -36,7 +38,10 @@ with no WPF and no parser present. Do not add either reference to Core.
   are millimetres-at-plot-scale, so lines would fatten as you zoom. Text is
   the deliberate exception: its height *is* in drawing units.
 - **Entities emit themselves** through `IDrawingSink` (`SceneEntity.Emit`), so
-  the render loop needs no type switch and the sink can be retargeted.
+  the render loop needs no type switch and the sink can be retargeted. They
+  hit test themselves too, through `DistanceTo` and `IntersectsRect` against a
+  `PickContext`. Distances are to the geometry as *drawn*: a circle is its
+  rim, a solid hatch is its area.
 - **Styles are resolved at import.** ByLayer is gone by the time Core sees an
   entity; ByBlock survives as a `StyleInheritance` flag because it depends on
   which INSERT is drawing it.
@@ -45,7 +50,16 @@ with no WPF and no parser present. Do not add either reference to Core.
   regenerating it. See the handoff doc; this is the whole basis of not
   destroying data we do not model.
 - Curves with no closed form re-sample per frame from
-  `EmitContext.PixelsPerUnit` rather than being flattened at import.
+  `EmitContext.PixelsPerUnit` rather than being flattened at import, and from
+  `PickContext.Tolerance` when they are being picked.
+- **Culling and picking go through `Layout.Index`,** a BVH. It answers with
+  positions into the entity list and callers sort them, because entity order
+  is painting order.
+- **Toolbar icons are path data on a 24x24 grid,** stroked with the button's
+  own `Foreground` and never filled, so one set serves both backgrounds and
+  any DPI. A button is a `Tag` and a tooltip; the template does the rest.
+  `IconTests` reads the references straight out of `MainWindow.xaml`, because
+  a `StaticResource` that resolves to nothing stops the app from starting.
 
 ## Testing
 

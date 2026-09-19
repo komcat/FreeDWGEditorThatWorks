@@ -31,13 +31,15 @@ public static class StaRenderer
         int width = DefaultWidth,
         int height = DefaultHeight,
         Action<RenderSettings>? configure = null,
-        string? saveAs = null)
+        string? saveAs = null,
+        Action<CadCanvas>? prepare = null)
     {
-        return RunOnSta(() => RenderCore(drawing, width, height, configure, saveAs));
+        return OnSta(() => RenderCore(drawing, width, height, configure, saveAs, prepare));
     }
 
     private static RenderResult RenderCore(
-        SceneDrawing drawing, int width, int height, Action<RenderSettings>? configure, string? saveAs)
+        SceneDrawing drawing, int width, int height, Action<RenderSettings>? configure, string? saveAs,
+        Action<CadCanvas>? prepare)
     {
         // The shell installs this at startup; a test host has no startup.
         TextMetrics.Measure = FreeDWGEditorThatWorks.Rendering.WpfText.MeasureWidth;
@@ -49,6 +51,11 @@ public static class StaRenderer
         canvas.Measure(new Size(width, height));
         canvas.Arrange(new Rect(0, 0, width, height));
         canvas.ZoomExtents();
+
+        // After the drawing is set, which clears any selection, and before the
+        // frame is taken: this is where a test selects something.
+        prepare?.Invoke(canvas);
+
         canvas.UpdateLayout();
 
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
@@ -94,8 +101,10 @@ public static class StaRenderer
     /// <summary>
     /// Runs a delegate on a fresh STA thread. WPF visuals have thread affinity
     /// and the xunit host thread is MTA, so every render needs one of these.
+    /// Public because anything building WPF objects in a test needs it, not
+    /// just scene renders.
     /// </summary>
-    private static T RunOnSta<T>(Func<T> work)
+    public static T OnSta<T>(Func<T> work)
     {
         T result = default!;
         Exception? failure = null;

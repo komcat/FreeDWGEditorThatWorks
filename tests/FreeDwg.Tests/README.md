@@ -6,9 +6,23 @@ dotnet test
 
 Two kinds of test live here.
 
-**`GeometryTests`** is ordinary arithmetic: de Boor against the Bézier a
-clamped cubic reduces to, bulge sagitta, arc and ellipse bounds, matrix
-composition order and inversion, camera round-trips. No WPF, no files.
+**`IconTests`** parses the shell's icon dictionary, checks every icon has
+ink and stays inside its 24x24 grid, and cross-checks the keys against the
+references in `MainWindow.xaml` in both directions. A `StaticResource` that
+resolves to nothing stops the app from starting, and nothing else here builds
+a window to find out. With `FREEDWG_TEST_RENDERS` set it also writes
+`icons.png`, a labelled contact sheet — which is how to tell an icon that
+parses from an icon that reads.
+
+**`GeometryTests`, `PickingTests` and `SelectionTests`** are ordinary
+arithmetic: de Boor against the Bézier a clamped cubic reduces to, bulge
+sagitta, arc and ellipse bounds, matrix composition order and inversion,
+camera round-trips, and what each entity considers a hit. No WPF, no files.
+
+The picking tests state distances against the curve itself, never against a
+flattening of it, and the spatial index is checked against the linear scan it
+replaced rather than against hand-written expectations — the property that
+matters there is that nothing changed except the cost.
 
 **Everything else renders.** Each scenario writes a DWG with ACadSharp, reads
 it back through `DwgLoader`, draws it off screen through the real `CadCanvas`
@@ -21,7 +35,9 @@ catch were invisible to the object model and only showed up in pixels:
 - arc sweep direction inverted, which turned every bulge inside out while
   endpoints and bounds stayed correct;
 - a mirrored block flipping that sweep back again;
-- dimensions losing their arrowheads, because an arrowhead is a `SOLID`.
+- dimensions losing their arrowheads, because an arrowhead is a `SOLID`;
+- a selected block highlighting its own outline but not the geometry
+  inside it, which is what `SelectionRenderTests` watches for.
 
 ## Fixtures
 

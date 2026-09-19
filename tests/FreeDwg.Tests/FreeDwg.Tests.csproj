@@ -30,4 +30,17 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The icon dictionary, copied rather than read through a pack URI: the
+      geometries are strings converted at XAML load, so a typo is a run-time
+      failure, and IconTests parses this same file to catch one. Resolving a
+      pack URI needs a WPF Application the test host has no business creating.
+    -->
+    <None Include="..\..\src\FreeDWGEditorThatWorks\Resources\Icons.xaml"
+          Link="Icons.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\FreeDWGEditorThatWorks\MainWindow.xaml"
+          Link="MainWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

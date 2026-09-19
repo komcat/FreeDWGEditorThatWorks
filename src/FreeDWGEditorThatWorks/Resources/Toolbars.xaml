@@ -1,0 +1,143 @@
+﻿<!--
+    Chrome for the icon toolbars.
+
+    One template, used by both a plain command button and a tool toggle, so
+    every button in the shell is the same size and highlights the same way.
+    The icon itself is whatever Geometry the button carries in its Tag: that
+    keeps the markup for a button down to a Tag and a tooltip, and means a new
+    icon needs no new style.
+
+    The Path is stroked with the button's own Foreground rather than a fixed
+    colour, so the whole set follows the theme instead of needing a second
+    copy for a light background.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Tool.Hover" Color="#22000000" />
+    <SolidColorBrush x:Key="Tool.Pressed" Color="#33000000" />
+    <SolidColorBrush x:Key="Tool.CheckedFill" Color="#3355A5FF" />
+    <SolidColorBrush x:Key="Tool.CheckedEdge" Color="#FF4A90D9" />
+    <SolidColorBrush x:Key="Tool.GroupLabel" Color="#FF6B7684" />
+    <SolidColorBrush x:Key="Tool.Divider" Color="#33000000" />
+
+    <Style x:Key="ToolButton" TargetType="Button">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Margin" Value="1" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="4"
+                            BorderThickness="1" BorderBrush="Transparent">
+                        <Canvas Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                                  Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Canvas>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.Pressed}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A latching tool: checked is the tool in force, so it has to read as on. -->
+    <Style x:Key="ToolToggle" TargetType="RadioButton">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Margin" Value="1" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="4"
+                            BorderThickness="1" BorderBrush="Transparent">
+                        <Canvas Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                                  Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Canvas>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.CheckedFill}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Tool.CheckedEdge}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A setting rather than a tool: same face, but it does not group. -->
+    <Style x:Key="ToolCheck" TargetType="ToggleButton">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Margin" Value="1" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="4"
+                            BorderThickness="1" BorderBrush="Transparent">
+                        <Canvas Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Path Data="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                                  Stroke="{TemplateBinding Foreground}" StrokeThickness="1.4"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Canvas>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Tool.CheckedFill}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Tool.CheckedEdge}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="ToolBarDivider" TargetType="Rectangle">
+        <Setter Property="Width" Value="1" />
+        <Setter Property="Margin" Value="5,4" />
+        <Setter Property="Fill" Value="{StaticResource Tool.Divider}" />
+    </Style>
+
+    <Style x:Key="PaletteGroupLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource Tool.GroupLabel}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Margin" Value="3,6,3,2" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+</ResourceDictionary>

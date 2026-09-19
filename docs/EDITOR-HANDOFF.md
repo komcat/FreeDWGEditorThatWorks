@@ -1,12 +1,13 @@
-# Handoff: the reader is done, the editor is next
+# Handoff: the reader is done, the editor is under way
 
-Written at commit `1325ee0`. Everything below is either in the repo or in the
-commit messages; this is the map, not a second copy.
+Written at commit `1325ee0` and updated as the editor milestones land.
+Everything below is either in the repo or in the commit messages; this is the
+map, not a second copy.
 
 ## Where things stand
 
-The reader is complete: M1–M5 of the original plan, eight commits, 126 tests
-passing in about half a second.
+The reader is complete: M1–M5 of the original plan. E1 has landed on top of
+it. 165 tests pass in about half a second.
 
 | | | |
 |---|---|---|
@@ -16,6 +17,7 @@ passing in about half a second.
 | M4 | `25bc589` | splines, ellipses, hatches, dimensions |
 | M5 | `6b2495d` | paper space, viewports |
 | — | `1325ee0` | the render harness became `tests/` |
+| E1 | — | selection, hit testing and the spatial index |
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -66,13 +68,67 @@ mapping lives on the side that knows what a handle is.
 Change tracking has to come from the command layer: a dirty set of
 `SourceHandle`s plus created/deleted lists. Do not try to diff two documents.
 
-## Suggested milestones
+## Milestones
 
-**E1 — Selection and hit testing.** `SceneEntity.DistanceTo(Vec2)` per
-entity, a spatial index to replace the linear scan in `SceneRenderer`, click
-and window/crossing selection, highlight rendering. Mostly Core, so mostly
-plain unit tests: exactly the kind of work `GeometryTests` covers well.
-A spatial index is overdue anyway — culling is still a linear scan.
+**E1 — Selection and hit testing. Done.** What landed, and where it differs
+from what was sketched here:
+
+- `SceneEntity.DistanceTo(Vec2, PickContext)` per entity, plus
+  `IntersectsRect` — crossing selection needs a shape-versus-rectangle test,
+  and a distance to a point cannot stand in for one. `PickContext` mirrors
+  `EmitContext` for the reason `EmitContext` exists: block children are on
+  their own layers, and a tolerance has to be divided by a block's scale on
+  the way in.
+- Analytic wherever the entity is analytic: line, circle, arc, bulged
+  polyline, text box. Ellipses and splines flatten at the pick tolerance
+  rather than at the zoom, which keeps the flattening error to a quarter of
+  the radius a click is allowed to miss by.
+- `Picking/SpatialIndex` is a BVH, not a grid. A CAD drawing is the worst
+  case for a grid: a title block in one corner, the model in another, and
+  entities from a millimetre of hatch to a kilometre of setting-out line. It
+  answers with positions, which callers sort — entity order *is* painting
+  order, and an unsorted query quietly reshuffles what is drawn over what.
+  `Layout.Index` caches it; `Layout.Add` and `InvalidateBounds` drop it.
+- Highlighting is a sink decorator (`StyleOverrideSink`), not a flag on the
+  context. The style a sink receives comes from the entity, not from
+  `EmitContext`, so there was nothing to thread an override down — but every
+  style passes through the sink, and wrapping it reaches inside a block for
+  free. `SelectionRenderTests` is a pixel test for exactly that.
+
+Three things are deliberately approximate, and none is worth fixing until
+someone notices it:
+
+- Window selection tests entity **bounds**, not geometry. A spline's bounds
+  are its control hull, so one lying near the edge of the window is
+  occasionally missed.
+- Crossing selection through a **rotated** block tests against the bounds of
+  the inverse-transformed rectangle. That over-selects slightly at its
+  corners and never under-selects.
+- A hatch is picked anywhere inside it, solid or pattern. AutoCAD wants a
+  pattern line; clicking a visibly filled area and hitting nothing reads as a
+  bug to everyone who is not AutoCAD.
+
+Two UI decisions worth knowing before changing them: left-drag no longer pans
+(it bands, so right-drag pans as well as middle), and a plain click
+*replaces* the selection where AutoCAD would add to it — Shift or Ctrl
+extends.
+
+**The toolbars came next, ahead of the tools they will drive.** The shell now
+has an icon toolbar and a Draw/Modify palette holding all 28 tools, drawn as
+path data in `Resources/Icons.xaml`. Only the pointer, zoom extents and zoom
+window are live; everything else is disabled, and each tooltip names the
+milestone it is waiting for. That is deliberate rather than lazy: a tool
+mutates the scene, and E2's whole point is that nothing mutates it except
+through the command stack. The palette is here early because it is what the
+window is laid out around, and because an icon set is easier to judge as a
+set than one button at a time.
+
+Wiring a tool up when its milestone lands is a `Click` handler and dropping
+`IsEnabled="False"`. What does *not* yet exist is the tool-state machine
+itself — which tool is in force, what a click means while one is active, how
+a tool ends. `CadCanvas.ZoomWindowArmed` is the smallest possible version of
+that idea (one flag, one shot) and should be replaced by the real thing in
+E4, not extended.
 
 **E2 — Command stack.** A mutation API on `Drawing` that goes through
 commands, undo/redo, and the dirty tracking E5 needs. Get this in before any
@@ -80,8 +136,10 @@ tool exists, so no tool can mutate the scene directly.
 
 **E3 — Grips.** Move, and drag endpoints. The first real test of whether the
 scene model is comfortable to mutate; expect to find that some entity caches
-(`Bounds`, `BlockDefinition.Bounds`) need invalidating more carefully than
-they do now. `InvalidateBounds` exists but nothing calls it yet.
+(`Bounds`, `BlockDefinition.Bounds`, and now `Layout.Index`) need
+invalidating more carefully than they do now. `SceneEntity.InvalidateBounds`
+exists but nothing calls it yet, and nothing carries it up to the layout that
+indexed the entity. E3 is where that has to be sorted out.
 
 **E4 — Draw tools and snapping.** Line, polyline, circle, arc. Object snap
 (endpoint, midpoint, centre, intersection) is what makes drafting usable and
@@ -135,3 +193,8 @@ noticed:
 - Text does not mirror inside a mirrored block.
 - Non-rectangular clipped viewports use their bounding rectangle.
 - One `StreamGeometry` allocation per figure; batch when it starts to matter.
+- The rubber band is painted by `CadCanvas` in device space, outside the
+  sink. Fine while it is the only overlay; grips will want somewhere to live.
+- The palette scrolls rather than reflows, and is three columns because 28
+  buttons in two did not fit a 700px window. A fourth group would want a real
+  layout rather than another column.
