@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 311 tests, ~1s
+dotnet test                 # 314 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -71,6 +71,11 @@ with no WPF and no parser present. Do not add either reference to Core.
 - **Intersection works on `CurvePiece`, not on entities.** Everything reduces
   to segments and arcs first, so there are three cases rather than a hundred.
   `CollectCurves` is how an entity offers itself up.
+- **A setting the tools use lives on the canvas, not copied into each tool.**
+  `CornerRadius` is applied in `SetMode` and again whenever it changes, so a
+  tool started before or after the number is typed behaves the same. Two
+  copies of a setting drift, and the one that is forgotten is a value that
+  silently does nothing.
 - **The app is smoke tested by running it.** `StartupTests` launches the real
   executable and waits for a window. A `StaticResource` that resolves to
   nothing, or a handler that fires mid-XAML-parse, compiles clean, passes

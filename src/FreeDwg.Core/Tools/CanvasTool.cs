@@ -40,7 +40,7 @@ public abstract class CanvasTool
     /// </summary>
     public virtual bool NeedsSelection => false;
 
-    public void Cancel() => _points.Clear();
+    public virtual void Cancel() => _points.Clear();
 
     protected void AddPoint(Vec2 point) => _points.Add(point);
 

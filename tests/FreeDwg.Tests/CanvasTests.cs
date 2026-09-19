@@ -328,6 +328,71 @@ public sealed class CanvasTests
         Assert.False(found);
     }
 
+    // ---- entity tools ----------------------------------------------------
+
+    [Fact]
+    public void AFilletThroughTheCanvasRoundsTheCorner()
+    {
+        var (count, radius) = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.None;
+
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(100, 0));
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(0, 100));
+
+            // Through the canvas's setting, which is the only one that
+            // counts: a radius put on the tool itself is overwritten.
+            canvas.CornerRadius = 10;
+            canvas.UseTool(new FilletTool());
+
+            canvas.PickEntityForTool(new Vec2(90, 0));
+            canvas.PickEntityForTool(new Vec2(0, 90));
+
+            var arc = drawing.Entities.OfType<SArc>().SingleOrDefault();
+            return (drawing.Entities.Count, arc?.Radius ?? -1);
+        });
+
+        // Two trimmed lines and the arc between them.
+        Assert.Equal(3, count);
+        Assert.Equal(10, radius, 9);
+    }
+
+    [Fact]
+    public void TheCornerRadiusReachesAToolPickedAfterItWasSet()
+    {
+        double radius = OnCanvas((canvas, drawing) =>
+        {
+            // Set the size first, the way someone types it before reaching
+            // for the tool.
+            canvas.CornerRadius = 12;
+            canvas.UseTool(new FilletTool());
+
+            return ((FilletTool)canvas.Tool!).Radius;
+        });
+
+        Assert.Equal(12, radius, 9);
+    }
+
+    [Fact]
+    public void TheCornerRadiusReachesAToolAlreadyRunning()
+    {
+        double radius = OnCanvas((canvas, drawing) =>
+        {
+            canvas.UseTool(new FilletTool());
+
+            // And the other order: tool first, then the size, which is what
+            // anyone does the first time they meet the box.
+            canvas.CornerRadius = 8;
+
+            return ((FilletTool)canvas.Tool!).Radius;
+        });
+
+        Assert.Equal(8, radius, 9);
+    }
+
     // ---- one mode at a time ---------------------------------------------
 
     [Fact]

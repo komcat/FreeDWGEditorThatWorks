@@ -150,8 +150,8 @@ public partial class MainWindow : Window
             nameof(MirrorButton) => new MirrorTool(),
             nameof(TrimButton) => new TrimTool(),
             nameof(ExtendButton) => new ExtendTool(),
-            nameof(FilletButton) => new FilletTool { Radius = _cornerSize },
-            nameof(ChamferButton) => new ChamferTool { Radius = _cornerSize },
+            nameof(FilletButton) => new FilletTool(),
+            nameof(ChamferButton) => new ChamferTool(),
             nameof(TangentButton) => new TangentMateTool(),
             _ => null,
         };
@@ -219,28 +219,22 @@ public partial class MainWindow : Window
         _ => null,
     };
 
-    /// <summary>
-    /// Fillet radius and chamfer distance, which are the same question asked
-    /// twice. Kept here rather than read from the box on demand so that a
-    /// half-typed number cannot reach a tool mid-operation.
-    /// </summary>
-    private double _cornerSize;
-
     private void OnRadiusChanged(object sender, TextChangedEventArgs e)
     {
         // Text="0" in the markup raises this during InitializeComponent,
         // when the canvas this goes on to touch has not been created yet.
         if (!_ready) return;
 
-        if (!double.TryParse(RadiusBox.Text, out double value) || value < 0) return;
+        // Invariant rather than the current culture: a drawing typed on a
+        // machine that writes 7,5 and one that writes 7.5 have to mean the
+        // same thing, and a decimal point is what a CAD user types.
+        if (!double.TryParse(RadiusBox.Text, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double value) || value < 0)
+        {
+            return;
+        }
 
-        _cornerSize = value;
-
-        // A tool already running picks the new figure up, so the box can be
-        // adjusted between the first line and the second.
-        if (Canvas.Tool is FilletTool fillet) fillet.Radius = value;
-
-        UpdateStatus();
+        Canvas.CornerRadius = value;
     }
 
     /// <summary>
@@ -467,9 +461,10 @@ public partial class MainWindow : Window
         string blocks = drawing.Blocks.Count == 0 ? "" : $"   |   {drawing.Blocks.Count} blocks";
         string layer = drawing.CurrentLayer is { } current ? $"   |   layer {current.Name}" : "";
         string selected = Canvas.Selection.IsEmpty ? "" : $"   |   {Canvas.Selection.Count} selected";
+        string radius = $"   |   R {Canvas.CornerRadius:0.###}";
 
         StatusText.Text =
-            $"{source}{blocks}   |   {drawing.ActiveLayout.Name}{layer}   |   extents {extents}{selected}";
+            $"{source}{blocks}   |   {drawing.ActiveLayout.Name}{layer}   |   extents {extents}{selected}{radius}";
     }
 
     /// <summary>Minimal ICommand shim so a keyboard shortcut can invoke an async method.</summary>

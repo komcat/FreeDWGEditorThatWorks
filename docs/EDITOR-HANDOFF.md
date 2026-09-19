@@ -276,7 +276,17 @@ started, because a circle that jumped across the line it was being mated to
 would be a surprise.
 
 The fillet radius box is the first numeric entry in the app, and is where
-real coordinate entry should grow from.
+real coordinate entry should grow from. The figure itself lives on the canvas
+as `CornerRadius`, not on the tool: it was copied into the tool at
+construction *and* pushed in again on change, which is two places to forget
+and exactly how a setting ends up silently doing nothing. The canvas applies
+it when a tool starts and whenever it changes, so both orders -- type then
+pick, pick then type -- are the same path, and both are tested. It is also
+shown in the status bar at all times, so the current radius is visible
+without having to start the tool to find out.
+
+Numbers are parsed with the invariant culture: a CAD user types a decimal
+point, whatever their machine thinks the separator is.
 
 Still to do: intersection and perpendicular snaps (the geometry for the first
 now exists and is just not wired to the snap engine); polygon, which needs
@@ -345,6 +355,10 @@ noticed:
   drawing with a very dense block under the cursor would feel it.
 - `SInsert.Placement` was called `Transform` until it collided with
   `SceneEntity.Transform`. Any old notes saying `insert.Transform` mean that.
+- The tool buttons act on `Click`, so setting `IsChecked` programmatically
+  lights one without starting its tool. `SyncModeButtons` only ever drives
+  them from the canvas, which is the safe direction, but scripting the UI
+  from outside would find the lie.
 - Trim and extend handle lines, arcs and circles. A polyline has to be
   exploded first, which is a tool that does not exist yet.
 - Rotate reads its angle straight off the second point, so dragging right is

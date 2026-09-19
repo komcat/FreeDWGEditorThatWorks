@@ -136,6 +136,34 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Object snap, ortho and the grid.</summary>
     public SnapEngine Snapping { get; } = new();
 
+    /// <summary>
+    /// Fillet radius and chamfer distance. Zero means a sharp corner.
+    /// </summary>
+    /// <remarks>
+    /// Held here rather than copied into each tool as it is built, because
+    /// two copies of a setting drift: one path sets it at construction and
+    /// the other on change, and whichever is forgotten is a size that
+    /// silently does nothing. The canvas owns it and applies it, so a tool
+    /// started before or after the number is typed behaves the same.
+    /// </remarks>
+    public double CornerRadius
+    {
+        get => _cornerRadius;
+        set
+        {
+            _cornerRadius = value;
+            ApplyCornerRadius();
+            ModeChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private double _cornerRadius;
+
+    private void ApplyCornerRadius()
+    {
+        if (_tool is FilletTool fillet) fillet.Radius = _cornerRadius;
+    }
+
     /// <summary>Back to the pointer.</summary>
     public void UseSelect() => SetMode(CanvasMode.Select, null);
 
@@ -161,6 +189,11 @@ public sealed class CadCanvas : FrameworkElement
         if (mode != CanvasMode.Select && tool?.NeedsSelection != true) Selection.Clear();
 
         _snap = default;
+
+        // Whatever the tool was built with, the canvas's figure wins: there
+        // is one setting and it is here.
+        ApplyCornerRadius();
+
         Cursor = mode == CanvasMode.Select ? Cursors.Arrow : Cursors.Cross;
 
         InvalidateVisual();

@@ -1,4 +1,4 @@
-using FreeDwg.Core.Editing;
+﻿using FreeDwg.Core.Editing;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Scene.Entities;
@@ -36,7 +36,12 @@ public abstract class EntityTool : CanvasTool
     /// </summary>
     public abstract EditPlan Click(in EntityPick pick);
 
-    public new void Cancel()
+    /// <summary>
+    /// Override rather than hide: the canvas cancels through a
+    /// <see cref="CanvasTool"/> reference, so a hidden method would never
+    /// run and a half-finished fillet would keep its first line for ever.
+    /// </summary>
+    public override void Cancel()
     {
         Picked.Clear();
         base.Cancel();
