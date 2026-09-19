@@ -14,6 +14,9 @@ public sealed class Drawing
     /// <summary>Block definitions, referenced by <see cref="Entities.SInsert"/>.</summary>
     public List<BlockDefinition> Blocks { get; } = new();
 
+    /// <summary>Dash patterns referenced by entity and layer styles.</summary>
+    public List<Styling.Linetype> Linetypes { get; } = new();
+
     /// <summary>Path this was imported from, if any.</summary>
     public string? SourcePath { get; set; }
 

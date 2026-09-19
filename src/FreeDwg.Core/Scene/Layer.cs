@@ -11,6 +11,9 @@ public sealed class Layer
     public Rgb Color { get; init; } = Rgb.White;
     public Lineweight Lineweight { get; init; } = Lineweight.Default;
 
+    /// <summary>Dash pattern entities on this layer inherit when theirs is ByLayer.</summary>
+    public Linetype? Linetype { get; init; }
+
     public bool IsOn { get; set; } = true;
     public bool IsFrozen { get; set; }
     public bool IsLocked { get; set; }

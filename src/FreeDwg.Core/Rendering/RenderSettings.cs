@@ -19,6 +19,20 @@ public sealed class RenderSettings
     public double MinLineWidthPixels { get; set; } = 1.0;
 
     /// <summary>
+    /// Text smaller than this on screen is skipped. Below a few pixels it is
+    /// an unreadable smudge, and a drawing full of annotation would spend most
+    /// of a frame shaping glyphs nobody can read.
+    /// </summary>
+    public double MinTextHeightPixels { get; set; } = 3.0;
+
+    /// <summary>
+    /// Dash patterns shorter than this on screen are drawn solid. A pattern
+    /// compressed below a couple of pixels is indistinguishable from a solid
+    /// line but far more expensive, and aliases badly while zooming.
+    /// </summary>
+    public double MinDashPatternPixels { get; set; } = 3.0;
+
+    /// <summary>
     /// Flip pure black and pure white to stay legible against the background.
     /// DWG colour index 7 means "whatever contrasts with the background", and
     /// every CAD viewer honours that; by this point the index is long gone, so

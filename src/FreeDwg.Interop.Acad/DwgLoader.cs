@@ -4,12 +4,15 @@ using ACadSharp.IO;
 using ACadSharp.Tables;
 using CSMath;
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Scene.Entities;
+using FreeDwg.Core.Styling;
 using AcadArc = ACadSharp.Entities.Arc;
 using AcadCircle = ACadSharp.Entities.Circle;
 using AcadLine = ACadSharp.Entities.Line;
 using SceneLayer = FreeDwg.Core.Scene.Layer;
+using SceneLinetype = FreeDwg.Core.Styling.Linetype;
 
 namespace FreeDwg.Interop.Acad;
 
@@ -47,11 +50,20 @@ public static class DwgLoader
         /// <summary>A MINSERT grid this large is almost certainly corrupt data.</summary>
         private const int MaxArrayInstances = 10_000;
 
+        /// <summary>
+        /// AutoCAD spaces MTEXT lines at 5/3 of the text height when the line
+        /// spacing factor is 1. TEXT has no such notion; it is one line.
+        /// </summary>
+        private const double MTextLineSpacingBase = 5.0 / 3.0;
+
         private readonly CadDocument _document;
         private readonly ImportDiagnostics _diagnostics;
         private readonly Drawing _drawing = new();
         private readonly Dictionary<ulong, int> _layerIndexByHandle = new();
         private readonly Dictionary<ulong, BlockDefinition> _blockByHandle = new();
+        private readonly Dictionary<ulong, SceneLinetype> _linetypeByHandle = new();
+        private readonly FontResolver _fonts = new();
+        private StyleResolver _styles = null!;
         private int _fallbackLayer;
 
         public Converter(CadDocument document, ImportDiagnostics diagnostics)
@@ -62,6 +74,9 @@ public static class DwgLoader
 
         public Drawing Run()
         {
+            ConvertLinetypes();
+            _styles = new StyleResolver(_linetypeByHandle, _document.Header?.LineTypeScale ?? 1.0);
+
             ConvertLayers();
             ConvertBlocks();
 
@@ -69,7 +84,20 @@ public static class DwgLoader
                 AddConverted(entity, _drawing.Entities);
 
             _diagnostics.ImportedCount = _drawing.Entities.Count;
+            foreach (var (shx, substitute) in _fonts.Substitutions)
+                _diagnostics.FontSubstituted(shx, substitute);
+
             return _drawing;
+        }
+
+        private void ConvertLinetypes()
+        {
+            foreach (var lineType in _document.LineTypes)
+            {
+                var converted = StyleResolver.ToLinetype(lineType);
+                _linetypeByHandle[lineType.Handle] = converted;
+                if (!converted.IsContinuous) _drawing.Linetypes.Add(converted);
+            }
         }
 
         private void ConvertLayers()
@@ -78,7 +106,17 @@ public static class DwgLoader
 
             foreach (var acadLayer in _document.Layers)
             {
-                int index = _drawing.AddLayer(StyleResolver.ToSceneLayer(acadLayer));
+                int index = _drawing.AddLayer(new SceneLayer(acadLayer.Name)
+                {
+                    Color = StyleResolver.ToRgb(acadLayer.Color, Rgb.White),
+                    Lineweight = StyleResolver.ToLineweight(acadLayer.LineWeight, Lineweight.Default),
+                    Linetype = _styles.LinetypeOf(acadLayer.LineType),
+                    SourceHandle = acadLayer.Handle,
+                    IsOn = acadLayer.IsOn,
+                    IsFrozen = acadLayer.Flags.HasFlag(LayerFlags.Frozen),
+                    IsLocked = acadLayer.Flags.HasFlag(LayerFlags.Locked),
+                });
+
                 _layerIndexByHandle[acadLayer.Handle] = index;
 
                 // Layer "0" always exists in a well-formed drawing and is the
@@ -193,7 +231,8 @@ public static class DwgLoader
                 ? index
                 : _fallbackLayer;
 
-            var (style, inherits) = StyleResolver.Resolve(source, _drawing.Layers[layerIndex]);
+            var layer = _drawing.Layers[layerIndex];
+            var (style, inherits) = _styles.Resolve(source, layer, layer.Linetype);
 
             scene.LayerIndex = layerIndex;
             scene.Style = style;
@@ -201,14 +240,113 @@ public static class DwgLoader
             scene.SourceHandle = source.Handle;
         }
 
-        private static SceneEntity? ConvertEntity(Entity entity) => entity switch
+        private SceneEntity? ConvertEntity(Entity entity) => entity switch
         {
             // Arc derives from Circle in ACadSharp, so it has to be matched first.
             AcadArc arc => ConvertArc(arc),
             AcadCircle circle => new SCircle(ToVec2(circle.Center), circle.Radius),
             AcadLine line => new SLine(ToVec2(line.StartPoint), ToVec2(line.EndPoint)),
             LwPolyline polyline => ConvertLwPolyline(polyline),
+            MText mtext => ConvertMText(mtext),
+            TextEntity text => ConvertText(text),
             _ => null,
+        };
+
+        private SText? ConvertText(TextEntity text)
+        {
+            if (string.IsNullOrEmpty(text.Value) || text.Height <= 0) return null;
+
+            var (family, bold, italic, styleWidth, styleOblique) = _fonts.Resolve(text.Style);
+
+            var (anchorX, anchorY) = AnchorFor(text.HorizontalAlignment, text.VerticalAlignment);
+
+            // DWG keeps the insertion point in group 10 but switches to the
+            // alignment point in group 11 as soon as the text is not plain
+            // left-baseline. Using the wrong one shifts every aligned label.
+            bool usesAlignmentPoint =
+                text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+
+            var position = ToVec2(usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint);
+
+            double widthFactor = text.WidthFactor > 0 ? text.WidthFactor : styleWidth;
+
+            return new SText(new[] { text.Value }, position, text.Height)
+            {
+                Rotation = text.Rotation,
+                WidthFactor = widthFactor,
+                ObliqueAngle = text.ObliqueAngle != 0 ? text.ObliqueAngle : styleOblique,
+                LineStep = text.Height,
+                AnchorX = anchorX,
+                AnchorY = anchorY,
+                FontFamily = family,
+                Bold = bold,
+                Italic = italic,
+            };
+        }
+
+        private SText? ConvertMText(MText mtext)
+        {
+            // ACadSharp already strips MTEXT's inline formatting codes and
+            // splits on the paragraph breaks, which is the bulk of the work.
+            string[] lines = mtext.GetPlainTextLines();
+            if (lines.Length == 0 || mtext.Height <= 0) return null;
+
+            var (family, bold, italic, _, _) = _fonts.Resolve(mtext.Style);
+            var (anchorX, anchorY) = AnchorFor(mtext.AttachmentPoint);
+
+            double factor = mtext.LineSpacing > 0 ? mtext.LineSpacing : 1.0;
+
+            return new SText(lines, ToVec2(mtext.InsertPoint), mtext.Height)
+            {
+                Rotation = mtext.Rotation,
+                LineStep = mtext.Height * MTextLineSpacingBase * factor,
+                AnchorX = anchorX,
+                AnchorY = anchorY,
+                WrapWidth = mtext.RectangleWidth > 0 ? mtext.RectangleWidth : 0,
+                FontFamily = family,
+                Bold = bold,
+                Italic = italic,
+            };
+        }
+
+        private static (TextAnchorX, TextAnchorY) AnchorFor(
+            TextHorizontalAlignment horizontal, TextVerticalAlignmentType vertical)
+        {
+            // Aligned and Fit stretch the text between two points; treated as
+            // left-aligned here, so such text is placed but not stretched.
+            TextAnchorX x = horizontal switch
+            {
+                TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => TextAnchorX.Center,
+                TextHorizontalAlignment.Right => TextAnchorX.Right,
+                _ => TextAnchorX.Left,
+            };
+
+            TextAnchorY y = horizontal == TextHorizontalAlignment.Middle
+                ? TextAnchorY.Middle
+                : vertical switch
+                {
+                    TextVerticalAlignmentType.Bottom => TextAnchorY.Bottom,
+                    TextVerticalAlignmentType.Middle => TextAnchorY.Middle,
+                    TextVerticalAlignmentType.Top => TextAnchorY.Top,
+                    _ => TextAnchorY.Baseline,
+                };
+
+            return (x, y);
+        }
+
+        private static (TextAnchorX, TextAnchorY) AnchorFor(AttachmentPointType attachment) => attachment switch
+        {
+            AttachmentPointType.TopLeft => (TextAnchorX.Left, TextAnchorY.Top),
+            AttachmentPointType.TopCenter => (TextAnchorX.Center, TextAnchorY.Top),
+            AttachmentPointType.TopRight => (TextAnchorX.Right, TextAnchorY.Top),
+            AttachmentPointType.MiddleLeft => (TextAnchorX.Left, TextAnchorY.Middle),
+            AttachmentPointType.MiddleCenter => (TextAnchorX.Center, TextAnchorY.Middle),
+            AttachmentPointType.MiddleRight => (TextAnchorX.Right, TextAnchorY.Middle),
+            AttachmentPointType.BottomLeft => (TextAnchorX.Left, TextAnchorY.Bottom),
+            AttachmentPointType.BottomCenter => (TextAnchorX.Center, TextAnchorY.Bottom),
+            AttachmentPointType.BottomRight => (TextAnchorX.Right, TextAnchorY.Bottom),
+            _ => (TextAnchorX.Left, TextAnchorY.Top),
         };
 
         private static SArc ConvertArc(AcadArc arc)

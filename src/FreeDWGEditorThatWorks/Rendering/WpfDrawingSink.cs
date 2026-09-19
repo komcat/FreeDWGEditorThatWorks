@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using FreeDwg.Core.Geometry;
@@ -11,17 +12,20 @@ namespace FreeDWGEditorThatWorks.Rendering;
 /// Renders the scene's path vocabulary into a WPF <see cref="DrawingContext"/>.
 /// </summary>
 /// <remarks>
-/// Points are transformed to device space here rather than by pushing a
-/// transform onto the context. That is deliberate: a pushed transform scales
+/// Stroked geometry is transformed to device space here rather than by pushing
+/// a transform onto the context. That is deliberate: a pushed transform scales
 /// pen thickness too, and plot line widths are millimetres-at-plot-scale, not
 /// world units -- lines must not fatten as you zoom in. Block transforms are
-/// therefore composed into a matrix the sink owns, not onto the context.
+/// therefore composed into a matrix the sink owns. Text is the exception: its
+/// height <em>is</em> in drawing units, so it is drawn under a real transform.
 /// </remarks>
 public sealed class WpfDrawingSink : IDrawingSink
 {
     private readonly DrawingContext _dc;
     private readonly RenderSettings _settings;
-    private readonly Dictionary<(uint Color, double Width), Pen> _penCache = new();
+    private readonly double _pixelsPerDip;
+    private readonly Dictionary<(uint Color, double Width, object? Linetype, double DashScale), Pen> _penCache = new();
+    private readonly Dictionary<uint, Brush> _brushCache = new();
     private readonly Stack<Mat3> _transformStack = new();
 
     /// <summary>Current local space to device pixels, camera included.</summary>
@@ -32,10 +36,11 @@ public sealed class WpfDrawingSink : IDrawingSink
     private Pen? _pen;
     private Vec2 _currentPoint;
 
-    public WpfDrawingSink(DrawingContext dc, Camera camera, RenderSettings settings)
+    public WpfDrawingSink(DrawingContext dc, Camera camera, RenderSettings settings, double pixelsPerDip = 1.0)
     {
         _dc = dc;
         _settings = settings;
+        _pixelsPerDip = pixelsPerDip > 0 ? pixelsPerDip : 1.0;
         _toDevice = camera.WorldToScreenMatrix;
     }
 
@@ -117,6 +122,86 @@ public sealed class WpfDrawingSink : IDrawingSink
         EndFigure();
     }
 
+    public void Text(in TextRun run, in DisplayStyle style)
+    {
+        double scale = DeviceScaleBound;
+        if (!double.IsFinite(scale) || scale <= 0) return;
+
+        if (run.Height * scale < _settings.MinTextHeightPixels) return;
+
+        var formatted = Layout(run, scale);
+        if (formatted is null) return;
+
+        formatted.SetForegroundBrush(GetBrush(_settings.Adapt(style).Color));
+
+        // Text is laid out at a device-appropriate em size and then mapped back
+        // into drawing units, rather than laid out in drawing units directly: a
+        // drawing in metres can carry text a few thousandths of a unit high,
+        // close enough to the font pipeline's floor to come out mis-shaped.
+        var layoutToDevice =
+            Mat3.Scaling(1.0 / scale, -1.0 / scale)      // layout is Y-down, world is Y-up
+            * Mat3.Scaling(run.WidthFactor, 1)
+            * Oblique(run.ObliqueAngle)
+            * Mat3.Rotation(run.Rotation)
+            * Mat3.Translation(run.Position)
+            * _toDevice;
+
+        var (offsetX, offsetY) = AnchorOffset(run, formatted);
+
+        _dc.PushTransform(new MatrixTransform(ToMatrix(layoutToDevice)));
+        _dc.DrawText(formatted, new Point(offsetX, offsetY));
+        _dc.Pop();
+    }
+
+    private FormattedText? Layout(in TextRun run, double scale)
+    {
+        string text = run.Lines.Count == 1 ? run.Lines[0] : string.Join(Environment.NewLine, run.Lines);
+        if (string.IsNullOrEmpty(text)) return null;
+
+        double emSize = WpfText.EmSizeFor(run.Height, run.FontFamily, run.Bold, run.Italic) * scale;
+        if (!double.IsFinite(emSize) || emSize <= 0) return null;
+
+        var formatted = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            WpfText.GetTypeface(run.FontFamily, run.Bold, run.Italic), emSize, Brushes.Black, _pixelsPerDip)
+        {
+            Trimming = TextTrimming.None,
+        };
+
+        if (run.LineStep > 0) formatted.LineHeight = run.LineStep * scale;
+
+        // MTEXT's reference rectangle; WPF wraps to it for us.
+        if (run.WrapWidth > 0) formatted.MaxTextWidth = run.WrapWidth * scale;
+
+        return formatted;
+    }
+
+    private static (double X, double Y) AnchorOffset(in TextRun run, FormattedText formatted)
+    {
+        double x = run.AnchorX switch
+        {
+            TextAnchorX.Center => -formatted.Width / 2,
+            TextAnchorX.Right => -formatted.Width,
+            _ => 0,
+        };
+
+        // Layout coordinates run downward from the top of the first line.
+        double y = run.AnchorY switch
+        {
+            TextAnchorY.Top => 0,
+            TextAnchorY.Middle => -formatted.Height / 2,
+            TextAnchorY.Bottom => -formatted.Height,
+            _ => -formatted.Baseline,
+        };
+
+        return (x, y);
+    }
+
+    /// <summary>Slant matrix for a DWG oblique angle, applied in a Y-up frame.</summary>
+    private static Mat3 Oblique(double radians) =>
+        Math.Abs(radians) < 1e-9 ? Mat3.Identity : new Mat3(1, 0, Math.Tan(radians), 1, 0, 0);
+
+    private static Matrix ToMatrix(in Mat3 m) => new(m.M11, m.M12, m.M21, m.M22, m.OffsetX, m.OffsetY);
+
     /// <summary>
     /// WPF names its sweep directions for how the arc <em>looks</em> on screen,
     /// and the world-to-device Y flip mirrors the plane, so the two cancel out.
@@ -185,6 +270,67 @@ public sealed class WpfDrawingSink : IDrawingSink
         return (center, r, startAngle, clockwise ? -magnitude : magnitude);
     }
 
+    /// <summary>
+    /// Converts a DWG dash pattern into a WPF dash array, or null to stroke
+    /// solid. WPF measures dashes in multiples of the pen thickness, while DWG
+    /// stores them in drawing units, so the array has to be rebuilt whenever
+    /// the zoom or the pen width changes.
+    /// </summary>
+    private double[]? BuildDashes(in DisplayStyle style, double thickness, out bool hasDots)
+    {
+        hasDots = false;
+        if (!style.IsDashed || thickness <= 0) return null;
+
+        double scale = DeviceScaleBound * style.LinetypeScale;
+        if (!double.IsFinite(scale) || scale <= 0) return null;
+
+        // Compressed below a couple of pixels a pattern is indistinguishable
+        // from a solid line, but far more expensive, and it aliases badly while
+        // zooming.
+        if (style.Linetype!.PatternLength * scale < _settings.MinDashPatternPixels) return null;
+
+        var dashes = new List<double>();
+        bool wantDash = true;
+
+        foreach (double segment in style.Linetype.Pattern)
+        {
+            bool isDash = segment >= 0;
+            double length = Math.Abs(segment) * scale / thickness;
+
+            if (segment == 0)
+            {
+                // A dot is a zero-length dash, made visible by a round dash cap.
+                hasDots = true;
+                length = 0;
+            }
+
+            // The array must alternate dash, gap, dash, gap; two dashes running
+            // together need an empty gap inserted between them.
+            while (isDash != wantDash)
+            {
+                dashes.Add(0);
+                wantDash = !wantDash;
+            }
+
+            dashes.Add(length);
+            wantDash = !wantDash;
+        }
+
+        if (dashes.Count == 0) return null;
+        if (dashes.Count % 2 == 1) dashes.Add(0);
+        return dashes.ToArray();
+    }
+
+    private Brush GetBrush(Rgb color)
+    {
+        if (_brushCache.TryGetValue(color.Packed, out var cached)) return cached;
+
+        var brush = new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B));
+        brush.Freeze();
+        _brushCache[color.Packed] = brush;
+        return brush;
+    }
+
     private Point ToPoint(Vec2 local)
     {
         Vec2 device = _toDevice.Transform(local);
@@ -196,21 +342,31 @@ public sealed class WpfDrawingSink : IDrawingSink
         // Contrast adaptation lives here rather than in the render loop because
         // entities nested inside block definitions never pass through it.
         DisplayStyle style = _settings.Adapt(rawStyle);
+        double thickness = _settings.StrokeWidthPixels(style);
 
-        var key = (style.Color.Packed, _settings.StrokeWidthPixels(style));
+        // The dash array depends on the current zoom, so the scale belongs in
+        // the key; the cache lives for a single frame.
+        var key = (style.Color.Packed, thickness, (object?)style.Linetype,
+            style.LinetypeScale * DeviceScaleBound);
+
         if (_penCache.TryGetValue(key, out var cached)) return cached;
 
-        var brush = new SolidColorBrush(Color.FromRgb(style.Color.R, style.Color.G, style.Color.B));
-        brush.Freeze();
+        double[]? dashes = BuildDashes(style, thickness, out bool hasDots);
 
-        var pen = new Pen(brush, key.Item2)
+        var pen = new Pen(GetBrush(style.Color), thickness)
         {
             StartLineCap = PenLineCap.Round,
             EndLineCap = PenLineCap.Round,
             LineJoin = PenLineJoin.Round,
         };
-        pen.Freeze();
 
+        if (dashes is not null)
+        {
+            pen.DashStyle = new DashStyle(dashes, 0);
+            pen.DashCap = hasDots ? PenLineCap.Round : PenLineCap.Flat;
+        }
+
+        pen.Freeze();
         _penCache[key] = pen;
         return pen;
     }

@@ -17,11 +17,15 @@ public sealed class ImportDiagnostics
 {
     private readonly List<string> _messages = new();
     private readonly Dictionary<string, int> _unsupported = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _fontSubstitutions = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<string> Messages => _messages;
 
     /// <summary>Entity DXF names we skipped, and how many of each.</summary>
     public IReadOnlyDictionary<string, int> UnsupportedEntities => _unsupported;
+
+    /// <summary>SHX fonts drawn with an outline substitute, keyed by the requested font.</summary>
+    public IReadOnlyDictionary<string, string> FontSubstitutions => _fontSubstitutions;
 
     public int SkippedCount { get; private set; }
     public int ImportedCount { get; internal set; }
@@ -34,6 +38,12 @@ public sealed class ImportDiagnostics
         // Readers are chatty on damaged files; keep the tail bounded.
         if (_messages.Count < 500)
             _messages.Add($"[{e.NotificationType}] {e.Message}");
+    }
+
+    /// <summary>Records an SHX font that had to be drawn with a substitute.</summary>
+    internal void FontSubstituted(string requested, string substitute)
+    {
+        _fontSubstitutions[requested] = substitute;
     }
 
     /// <summary>Records something the importer had to work around.</summary>
@@ -65,6 +75,9 @@ public sealed class ImportDiagnostics
             if (_unsupported.Count > 4) sb.Append(", ...");
             sb.Append(')');
         }
+
+        if (_fontSubstitutions.Count > 0)
+            sb.Append(", ").Append(_fontSubstitutions.Count).Append(" SHX font(s) substituted");
 
         if (HasErrors) sb.Append(" -- reader reported errors");
         return sb.ToString();

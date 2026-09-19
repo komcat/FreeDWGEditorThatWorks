@@ -42,4 +42,11 @@ public interface IDrawingSink
     void PushTransform(in Mat3 transform);
 
     void PopTransform();
+
+    /// <summary>
+    /// Draws a block of text. Shaping, measurement and wrapping are the sink's
+    /// job: Core has no font stack, and only the renderer knows the metrics
+    /// that alignment depends on.
+    /// </summary>
+    void Text(in TextRun run, in DisplayStyle style);
 }

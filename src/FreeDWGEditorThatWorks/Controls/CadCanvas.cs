@@ -87,7 +87,7 @@ public sealed class CadCanvas : FrameworkElement
         if (_drawing is null) return;
 
         SyncViewport();
-        var sink = new WpfDrawingSink(dc, Camera, Settings);
+        var sink = new WpfDrawingSink(dc, Camera, Settings, VisualTreeHelper.GetDpi(this).PixelsPerDip);
         LastStats = SceneRenderer.Render(_drawing, Camera, sink);
     }
 
