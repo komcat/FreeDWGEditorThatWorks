@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -42,6 +43,34 @@ public abstract class SceneEntity
 
     /// <summary>Emits this entity's geometry. Double dispatch, so the render loop needs no type switch.</summary>
     public abstract void Emit(in EmitContext context, in DisplayStyle style);
+
+    /// <summary>
+    /// Distance in world units from <paramref name="point"/> to this entity's
+    /// geometry, or <see cref="double.PositiveInfinity"/> if it cannot be
+    /// picked at all. Double dispatch again, so selection needs no type switch
+    /// either.
+    /// </summary>
+    /// <remarks>
+    /// Measured against the geometry as drawn: an outline for an open shape,
+    /// the filled area for a hatch. Curves with no closed form are flattened
+    /// at <see cref="PickContext.Tolerance"/>, which keeps the error well
+    /// inside the radius a click is allowed to miss by.
+    /// </remarks>
+    public abstract double DistanceTo(Vec2 point, in PickContext context);
+
+    /// <summary>Convenience overload for callers with no layer table to hand.</summary>
+    public double DistanceTo(Vec2 point, double tolerance) =>
+        DistanceTo(point, new PickContext(tolerance));
+
+    /// <summary>
+    /// Whether any part of this entity lies inside <paramref name="rect"/>:
+    /// the test behind crossing selection. Window selection, which takes only
+    /// what is wholly enclosed, uses <see cref="Bounds"/> instead.
+    /// </summary>
+    public abstract bool IntersectsRect(Bounds2 rect, in PickContext context);
+
+    public bool IntersectsRect(Bounds2 rect, double tolerance) =>
+        IntersectsRect(rect, new PickContext(tolerance));
 
     /// <summary>Applies this entity's ByBlock placeholders from the enclosing reference's style.</summary>
     public DisplayStyle StyleWithin(in DisplayStyle reference)

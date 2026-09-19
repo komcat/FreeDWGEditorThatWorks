@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -54,5 +55,26 @@ public sealed class SSpline : SceneEntity
         sink.BeginFigure(points[0], IsClosed, style);
         for (int i = 1; i < points.Length; i++) sink.LineTo(points[i]);
         sink.EndFigure();
+    }
+
+    private Vec2[] Flatten(double tolerance) =>
+        BSpline.Tessellate(ControlPoints, Weights, Knots, Degree, Resolution.UnitsToSamples(tolerance));
+
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (ControlPoints.Count < 2) return double.PositiveInfinity;
+
+        var points = Flatten(context.Tolerance);
+        if (points.Length < 2) return double.PositiveInfinity;
+
+        return Distance.PointToPolyline(point, points, IsClosed);
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        // The control hull already bounds the curve, so this rejects cheaply.
+        if (ControlPoints.Count < 2 || !Bounds.Intersects(rect)) return false;
+
+        return Intersect.PolylineWithRect(Flatten(context.Tolerance), IsClosed, rect);
     }
 }

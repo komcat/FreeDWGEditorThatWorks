@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -55,5 +56,46 @@ public sealed class SHatch : SceneEntity
         }
 
         if (PatternSegments.Count > 0) context.Sink.Segments(PatternSegments, style);
+    }
+
+    /// <summary>
+    /// A hatch is picked anywhere inside it, pattern or solid. AutoCAD asks
+    /// for a pattern line unless PICKSTYLE says otherwise, but a hatch is a
+    /// region to everyone who is not AutoCAD, and clicking the middle of a
+    /// visibly filled area and hitting nothing reads as a bug.
+    /// </summary>
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (Loops.Count == 0)
+        {
+            // A hatch whose boundary failed to convert still has its pattern.
+            double nearest = double.PositiveInfinity;
+            foreach (var segment in PatternSegments)
+                nearest = Math.Min(nearest, Distance.PointToSegment(point, segment.A, segment.B));
+            return nearest;
+        }
+
+        if (Distance.PointInLoops(point, Loops)) return 0;
+
+        double best = double.PositiveInfinity;
+        foreach (var loop in Loops)
+            best = Math.Min(best, Distance.PointToPolyline(point, loop, closed: true));
+        return best;
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        if (!Bounds.Intersects(rect)) return false;
+
+        foreach (var loop in Loops)
+            if (Intersect.PolylineWithRect(loop, closed: true, rect)) return true;
+
+        // A rectangle wholly inside the filled area touches no boundary.
+        if (Loops.Count > 0) return Distance.PointInLoops(rect.Center, Loops);
+
+        foreach (var segment in PatternSegments)
+            if (Intersect.SegmentWithRect(segment.A, segment.B, rect)) return true;
+
+        return false;
     }
 }

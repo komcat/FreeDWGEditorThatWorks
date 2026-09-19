@@ -40,6 +40,14 @@ public sealed class RenderSettings
     /// </summary>
     public bool ContrastMonochrome { get; set; } = true;
 
+    /// <summary>
+    /// Colour selected entities paint in. A single bright colour rather than
+    /// AutoCAD's dashed ghosting: dashes are a linetype, and overloading them
+    /// would make a selected hidden line indistinguishable from an unselected
+    /// one.
+    /// </summary>
+    public Rgb SelectionColor { get; set; } = new(90, 175, 255);
+
     public DisplayStyle Adapt(in DisplayStyle style)
     {
         if (!ContrastMonochrome) return style;

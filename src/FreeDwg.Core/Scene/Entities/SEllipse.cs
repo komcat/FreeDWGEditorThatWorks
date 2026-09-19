@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -51,5 +52,27 @@ public sealed class SEllipse : SceneEntity
         for (int i = 1; i < end; i++) sink.LineTo(points[i]);
 
         sink.EndFigure();
+    }
+
+    /// <summary>
+    /// Flattened at the pick tolerance rather than the zoom, for the same
+    /// reason <see cref="Emit"/> flattens at the zoom: there is no closed form
+    /// for the distance to an ellipse worth solving here.
+    /// </summary>
+    private Vec2[] Flatten(double tolerance) =>
+        EllipseMath.Tessellate(Center, MajorAxis, Ratio, StartParameter, Sweep,
+            Resolution.UnitsToSamples(tolerance));
+
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (MajorAxis.LengthSquared <= 0 || Math.Abs(Sweep) < 1e-12) return double.PositiveInfinity;
+        return Distance.PointToPolyline(point, Flatten(context.Tolerance), IsClosed);
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        if (MajorAxis.LengthSquared <= 0 || Math.Abs(Sweep) < 1e-12) return false;
+        if (!Bounds.Intersects(rect)) return false;
+        return Intersect.PolylineWithRect(Flatten(context.Tolerance), IsClosed, rect);
     }
 }

@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -107,4 +108,14 @@ public sealed class SViewport : SceneEntity
         sink.LineTo(new Vec2(PaperRect.MinX, PaperRect.MaxY));
         sink.EndFigure();
     }
+
+    /// <summary>
+    /// Picked by its frame alone. What is inside belongs to model space and is
+    /// selected there; on a sheet, the object under the cursor is the window.
+    /// </summary>
+    public override double DistanceTo(Vec2 point, in PickContext context) =>
+        Distance.PointToRectEdge(point, PaperRect);
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
+        !PaperRect.IsEmpty && Intersect.PolylineWithRect(Distance.Corners(PaperRect), closed: true, rect);
 }

@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -78,5 +79,67 @@ public sealed class SPolyline : SceneEntity
         }
 
         sink.EndFigure();
+    }
+
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (Vertices.Length == 0) return double.PositiveInfinity;
+        if (Vertices.Length == 1) return Vec2.Distance(point, Vertices[0].Point);
+
+        double best = double.PositiveInfinity;
+
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            var from = Vertices[i];
+            Vec2 to = Vertices[(i + 1) % Vertices.Length].Point;
+
+            double d;
+            if (Math.Abs(from.Bulge) < 1e-12)
+            {
+                d = Distance.PointToSegment(point, from.Point, to);
+            }
+            else
+            {
+                // Bulges are kept rather than flattened, so measure the arc
+                // itself; a chord would read as much as a sagitta out.
+                var (center, radius, startAngle, sweep) = ArcMath.FromBulge(from.Point, to, from.Bulge);
+                d = radius > 0
+                    ? Distance.PointToArc(point, center, radius, startAngle, sweep)
+                    : Distance.PointToSegment(point, from.Point, to);
+            }
+
+            if (d < best) best = d;
+        }
+
+        return best;
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        if (Vertices.Length == 0) return false;
+        if (Vertices.Length == 1) return rect.Contains(Vertices[0].Point);
+
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            var from = Vertices[i];
+            Vec2 to = Vertices[(i + 1) % Vertices.Length].Point;
+
+            bool hit;
+            if (Math.Abs(from.Bulge) < 1e-12)
+            {
+                hit = Intersect.SegmentWithRect(from.Point, to, rect);
+            }
+            else
+            {
+                var (center, radius, startAngle, sweep) = ArcMath.FromBulge(from.Point, to, from.Bulge);
+                hit = radius > 0
+                    ? Intersect.ArcWithRect(center, radius, startAngle, sweep, rect, context.Tolerance)
+                    : Intersect.SegmentWithRect(from.Point, to, rect);
+            }
+
+            if (hit) return true;
+        }
+
+        return false;
     }
 }

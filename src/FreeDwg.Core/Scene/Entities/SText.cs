@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -48,10 +49,14 @@ public sealed class SText : SceneEntity
     /// <summary>Descender allowance below the baseline, as a fraction of cap height.</summary>
     private const double DescenderRatio = 0.25;
 
-    protected override Bounds2 ComputeBounds()
+    /// <summary>
+    /// The block's box with the first baseline at y = 0 and no rotation applied.
+    /// Bounds is this transformed; picking works in here instead, so that
+    /// rotated text is hit on the text and not on the corners of its
+    /// axis-aligned bounding box.
+    /// </summary>
+    private Bounds2 LocalBox()
     {
-        if (Lines.Count == 0 || Height <= 0) return Bounds2.FromPoint(Position);
-
         double width = TextMetrics.MaxLineWidth(Lines, Height, FontFamily, Bold, Italic) * WidthFactor;
 
         int lineCount = Lines.Count;
@@ -88,9 +93,16 @@ public sealed class SText : SceneEntity
 
         double bottom = top - blockHeight - Height * DescenderRatio;
 
-        var local = Bounds2.FromCorners(new Vec2(left, bottom), new Vec2(left + width, top));
-        var placement = Mat3.Rotation(Rotation) * Mat3.Translation(Position);
-        return placement.TransformBounds(local);
+        return Bounds2.FromCorners(new Vec2(left, bottom), new Vec2(left + width, top));
+    }
+
+    /// <summary>Text-local space to the space this entity lives in.</summary>
+    private Mat3 Placement => Mat3.Rotation(Rotation) * Mat3.Translation(Position);
+
+    protected override Bounds2 ComputeBounds()
+    {
+        if (Lines.Count == 0 || Height <= 0) return Bounds2.FromPoint(Position);
+        return Placement.TransformBounds(LocalBox());
     }
 
     public override void Emit(in EmitContext context, in DisplayStyle style)
@@ -113,5 +125,36 @@ public sealed class SText : SceneEntity
             Bold = Bold,
             Italic = Italic,
         }, style);
+    }
+
+    /// <summary>
+    /// Text is picked by its box, filled: dropping to the glyph outlines
+    /// would mean clicking the hole in an 'o' selected the line behind it.
+    /// </summary>
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (Lines.Count == 0 || Height <= 0) return Vec2.Distance(point, Position);
+        if (!Placement.TryInvert(out var toLocal)) return double.PositiveInfinity;
+
+        return Distance.PointToRect(toLocal.Transform(point), LocalBox());
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        if (Lines.Count == 0 || Height <= 0) return rect.Contains(Position);
+        if (!Bounds.Intersects(rect)) return false;
+
+        // Compare in text-local space, where the box is axis aligned and the
+        // rectangle is the rotated one.
+        if (!Placement.TryInvert(out var toLocal)) return false;
+
+        var box = LocalBox();
+        var corners = Distance.Corners(rect);
+        for (int i = 0; i < corners.Length; i++) corners[i] = toLocal.Transform(corners[i]);
+
+        if (Intersect.PolylineWithRect(corners, closed: true, box)) return true;
+
+        // No edge crossed: either the rectangle swallows the text or misses it.
+        return box.Contains(corners[0]) || Distance.PointInPolygon(box.Center, corners);
     }
 }

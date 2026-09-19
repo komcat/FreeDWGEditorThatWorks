@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 
 namespace FreeDwg.Core.Scene;
 
@@ -27,6 +28,18 @@ public sealed class Layout
     public ulong SourceHandle { get; init; }
 
     private Bounds2? _bounds;
+    private SpatialIndex? _index;
+
+    /// <summary>
+    /// Spatial index over <see cref="Entities"/>, built on first use.
+    /// Culling and picking both go through it instead of scanning.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Bounds"/>, it is invalidated by <see cref="Add"/> and
+    /// <see cref="InvalidateBounds"/>; a caller that reaches into
+    /// <see cref="Entities"/> and mutates it has to say so.
+    /// </remarks>
+    public SpatialIndex Index => _index ??= SpatialIndex.Build(Entities);
 
     public Bounds2 Bounds
     {
@@ -42,12 +55,17 @@ public sealed class Layout
         }
     }
 
-    public void InvalidateBounds() => _bounds = null;
+    /// <summary>Drops both caches: moving an entity invalidates the index too.</summary>
+    public void InvalidateBounds()
+    {
+        _bounds = null;
+        _index = null;
+    }
 
     public void Add(SceneEntity entity)
     {
         Entities.Add(entity);
-        _bounds = null;
+        InvalidateBounds();
     }
 
     public override string ToString() => Name;

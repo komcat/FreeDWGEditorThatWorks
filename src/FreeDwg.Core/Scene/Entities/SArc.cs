@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -45,4 +46,10 @@ public sealed class SArc : SceneEntity
         sink.ArcTo(EndPoint, Radius, largeArc: sweep > Math.PI, clockwise: Sweep < 0);
         sink.EndFigure();
     }
+
+    public override double DistanceTo(Vec2 point, in PickContext context) =>
+        Distance.PointToArc(point, Center, Radius, StartAngle, Sweep);
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
+        Intersect.ArcWithRect(Center, Radius, StartAngle, Sweep, rect, context.Tolerance);
 }

@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -21,4 +22,13 @@ public sealed class SCircle : SceneEntity
 
     public override void Emit(in EmitContext context, in DisplayStyle style) =>
         context.Sink.Circle(Center, Radius, style);
+
+
+    // The outline, not the disc: a click in the middle of a circle is a click
+    // on whatever is inside it, as it is in every CAD tool.
+    public override double DistanceTo(Vec2 point, in PickContext context) =>
+        Distance.PointToCircle(point, Center, Radius);
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context) =>
+        Intersect.CircleWithRect(Center, Radius, rect);
 }

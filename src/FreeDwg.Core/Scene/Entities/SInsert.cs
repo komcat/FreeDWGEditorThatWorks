@@ -1,4 +1,5 @@
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Styling;
 
@@ -64,4 +65,58 @@ public sealed class SInsert : SceneEntity
         * Mat3.Scaling(scaleX, scaleY)
         * Mat3.Rotation(rotation)
         * Mat3.Translation(insertPoint);
+
+    /// <summary>
+    /// Hit tested in block-local space, so one definition serves every
+    /// instance however it is placed -- the same trade as instancing the
+    /// geometry rather than copying it.
+    /// </summary>
+    public override double DistanceTo(Vec2 point, in PickContext context)
+    {
+        if (context.Depth >= PickContext.MaxDepth) return double.PositiveInfinity;
+        if (!Transform.TryInvert(out var toLocal)) return double.PositiveInfinity;
+
+        double scale = Transform.UniformScale;
+        if (scale <= 1e-300) return double.PositiveInfinity;
+
+        var nested = context.Nested(scale);
+        Vec2 local = toLocal.Transform(point);
+
+        double best = double.PositiveInfinity;
+        foreach (var child in Block.Entities)
+        {
+            if (!nested.IsLayerPickable(child.LayerIndex)) continue;
+
+            double d = child.DistanceTo(local, nested);
+            if (d < best) best = d;
+        }
+
+        // Back to the caller's units. Exact for the similarity transforms
+        // inserts almost always carry; for a non-uniform scale it is off by
+        // at most the ratio of the two axes, which no click can notice.
+        return best * scale;
+    }
+
+    public override bool IntersectsRect(Bounds2 rect, in PickContext context)
+    {
+        if (context.Depth >= PickContext.MaxDepth || !Bounds.Intersects(rect)) return false;
+        if (!Transform.TryInvert(out var toLocal)) return false;
+
+        double scale = Transform.UniformScale;
+        if (scale <= 1e-300) return false;
+
+        // A rotated instance turns the rectangle into a rotated one, which the
+        // children cannot test against; its bounds stand in. That over-selects
+        // slightly at the corners of a rotated block and never under-selects.
+        Bounds2 localRect = toLocal.TransformBounds(rect);
+        var nested = context.Nested(scale);
+
+        foreach (var child in Block.Entities)
+        {
+            if (!nested.IsLayerPickable(child.LayerIndex)) continue;
+            if (child.IntersectsRect(localRect, nested)) return true;
+        }
+
+        return false;
+    }
 }
