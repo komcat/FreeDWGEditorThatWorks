@@ -86,6 +86,56 @@ public abstract class SceneEntity
     /// </remarks>
     public abstract void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into);
 
+    /// <summary>
+    /// Moves this entity by an affine transform, in place.
+    /// </summary>
+    /// <remarks>
+    /// Not virtual: the override is <see cref="TransformGeometry"/>, and this
+    /// wrapper invalidates the bounds cache afterwards. An entity that moved
+    /// without dropping its cached bounds would be culled where it used to be
+    /// and picked where it no longer is, which is exactly the class of bug
+    /// this milestone was warned about.
+    /// <para>
+    /// A transform that is not a similarity -- a non-uniform scale or a skew
+    /// -- turns a circle into an ellipse, which the analytic entities cannot
+    /// represent. They approximate with the uniform scale instead. Every tool
+    /// here produces a similarity, so nothing hits that today.
+    /// </para>
+    /// </remarks>
+    public void Transform(in Mat3 transform)
+    {
+        TransformGeometry(transform);
+        InvalidateBounds();
+    }
+
+    protected abstract void TransformGeometry(in Mat3 transform);
+
+    /// <summary>
+    /// An independent copy, for the tools that duplicate rather than move.
+    /// </summary>
+    /// <remarks>
+    /// The clone carries no <see cref="SourceHandle"/>: it is a new object
+    /// that was never in the file, and giving it the original's handle would
+    /// have a save overwrite the original with the copy.
+    /// <para>
+    /// Shallow by default, because most entities are value fields all the way
+    /// down. The ones holding arrays or lists deep-copy them in
+    /// <see cref="CloneGeometry"/> -- but a block reference is deliberately
+    /// *not* copied, since instancing a definition is the whole point of it.
+    /// </para>
+    /// </remarks>
+    public SceneEntity Clone()
+    {
+        var copy = (SceneEntity)MemberwiseClone();
+        copy.SourceHandle = 0;
+        copy.InvalidateBounds();
+        copy.CloneGeometry();
+        return copy;
+    }
+
+    /// <summary>Replaces any shared mutable geometry on a fresh clone.</summary>
+    protected virtual void CloneGeometry() { }
+
     /// <summary>Applies this entity's ByBlock placeholders from the enclosing reference's style.</summary>
     public DisplayStyle StyleWithin(in DisplayStyle reference)
     {

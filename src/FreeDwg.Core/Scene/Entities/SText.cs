@@ -166,4 +166,20 @@ public sealed class SText : SceneEntity
         if (modes.HasFlag(SnapModes.Endpoint))
             into.Add(new SnapCandidate(Position, SnapKind.Endpoint));
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        Position = transform.Transform(Position);
+
+        // Height is in drawing units, so it scales; rotation comes from what
+        // the transform does to the text's own baseline direction.
+        double scale = transform.UniformScale;
+        Height *= scale;
+        LineStep *= scale;
+
+        Vec2 baseline = transform.TransformVector(new Vec2(Math.Cos(Rotation), Math.Sin(Rotation)));
+        if (baseline.LengthSquared > 0) Rotation = baseline.Angle();
+    }
+
+    protected override void CloneGeometry() => Lines = Lines.ToArray();
 }

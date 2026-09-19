@@ -14,6 +14,12 @@ a window to find out. With `FREEDWG_TEST_RENDERS` set it also writes
 `icons.png`, a labelled contact sheet — which is how to tell an icon that
 parses from an icon that reads.
 
+**`TransformTests`** covers moving entities and the modify tools. The case
+worth knowing is the mirrored arc: its endpoints and its bounds are identical
+whether or not the sweep was reversed, so the model-level test asserts the
+sign of the sweep and `DrawingRenderTests` checks the pixels as well. This is
+the third time that trap has been paid for.
+
 **`SnapTests`** asserts exact equality on snapped points rather than
 nearness, which is the whole point: two lines that meet to within a pixel are
 two lines that do not meet.

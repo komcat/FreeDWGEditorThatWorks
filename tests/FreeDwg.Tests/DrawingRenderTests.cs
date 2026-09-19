@@ -116,6 +116,31 @@ public sealed class DrawingRenderTests
     }
 
     [Fact]
+    public void AMirroredArcBulgesTheRightWay()
+    {
+        var drawing = SceneDrawing.CreateEmpty();
+        var stack = new CommandStack(drawing);
+
+        // An arc from (0,0) through (20,20) to (40,0): it arches upward.
+        Use(drawing, stack, new ArcTool(), new Vec2(0, 0), new Vec2(20, 20), new Vec2(40, 0));
+
+        var arc = drawing.Entities[0];
+        stack.Do(new CopyEntities(drawing.ActiveLayout, [arc],
+            Mat3.Reflection(new Vec2(60, 0), new Vec2(0, 1)), "Mirror"));
+
+        var probe = new Probe(StaRenderer.Render(drawing, saveAs: "tools_mirrored_arc"));
+
+        // Mirroring in a vertical line leaves up as up, so the copy has to
+        // arch the same way. This is the one assertion that catches a sweep
+        // that was not reversed: the endpoints and the bounds are identical
+        // either way, and only the pixels differ.
+        probe.AssertInk(100, 20, "the mirrored arc, arching up as the original does");
+        probe.AssertBlank(100, -20, "nothing below: an unreversed sweep would put the arc here");
+
+        probe.AssertInk(20, 20, "the original, untouched");
+    }
+
+    [Fact]
     public void NewGeometryTakesTheColourOfTheCurrentLayer()
     {
         var drawing = SceneDrawing.CreateEmpty();

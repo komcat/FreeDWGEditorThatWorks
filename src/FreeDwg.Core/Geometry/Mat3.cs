@@ -1,4 +1,4 @@
-namespace FreeDwg.Core.Geometry;
+﻿namespace FreeDwg.Core.Geometry;
 
 /// <summary>
 /// A 2D affine transform, stored as the six significant cells of a 3x3 matrix.
@@ -35,6 +35,35 @@ public readonly struct Mat3
     /// <summary>Rotation about an arbitrary world point.</summary>
     public static Mat3 RotationAbout(double radians, Vec2 origin) =>
         Translation(-origin) * Rotation(radians) * Translation(origin);
+
+    /// <summary>Uniform scale about an arbitrary world point.</summary>
+    public static Mat3 ScalingAbout(double scale, Vec2 origin) =>
+        Translation(-origin) * Scaling(scale) * Translation(origin);
+
+    /// <summary>
+    /// Reflection in the line through <paramref name="point"/> along
+    /// <paramref name="direction"/>.
+    /// </summary>
+    /// <remarks>
+    /// Rotate the axis onto +X, flip Y, rotate back. The determinant of the
+    /// result is negative, which is how everything downstream knows to
+    /// reverse an arc's sweep -- a mirrored arc bulges the other way while
+    /// its endpoints stay put, and that is invisible until you look at it.
+    /// </remarks>
+    public static Mat3 Reflection(Vec2 point, Vec2 direction)
+    {
+        if (direction.LengthSquared < 1e-300) return Identity;
+
+        double angle = direction.Angle();
+        return Translation(-point)
+            * Rotation(-angle)
+            * Scaling(1, -1)
+            * Rotation(angle)
+            * Translation(point);
+    }
+
+    /// <summary>True when the transform turns the plane over, as a mirror does.</summary>
+    public bool IsMirror => Determinant < 0;
 
     /// <summary>Applies <paramref name="a"/> first, then <paramref name="b"/>.</summary>
     public static Mat3 operator *(Mat3 a, Mat3 b) => new(

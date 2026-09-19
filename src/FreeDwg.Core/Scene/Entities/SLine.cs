@@ -39,4 +39,10 @@ public sealed class SLine : SceneEntity
         if (modes.HasFlag(SnapModes.Midpoint))
             into.Add(new SnapCandidate(Vec2.Lerp(Start, End, 0.5), SnapKind.Midpoint));
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        Start = transform.Transform(Start);
+        End = transform.Transform(End);
+    }
 }

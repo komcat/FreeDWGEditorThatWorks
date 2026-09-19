@@ -34,7 +34,7 @@ public sealed class CadCanvas : FrameworkElement
     private Point _pickAnchor;
     private Point _bandCorner;
 
-    private DrawTool? _tool;
+    private CanvasTool? _tool;
     private Vec2 _cursor;
     private Vec2 _snapped;
     private SnapResult _snap;
@@ -118,7 +118,7 @@ public sealed class CadCanvas : FrameworkElement
     /// The tool in force, or null unless <see cref="Mode"/> is
     /// <see cref="CanvasMode.Draw"/>.
     /// </summary>
-    public DrawTool? Tool => _tool;
+    public CanvasTool? Tool => _tool;
 
     /// <summary>
     /// What a left click does. Exactly one thing, always.
@@ -138,21 +138,26 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Back to the pointer.</summary>
     public void UseSelect() => SetMode(CanvasMode.Select, null);
 
-    /// <summary>Starts drawing with <paramref name="tool"/>.</summary>
-    public void UseTool(DrawTool tool) => SetMode(CanvasMode.Draw, tool);
+    /// <summary>
+    /// Starts <paramref name="tool"/>. Draw and modify tools share a mode:
+    /// both are "a click gives the tool its next point", and the only
+    /// difference is what comes back at the end.
+    /// </summary>
+    public void UseTool(CanvasTool tool) => SetMode(CanvasMode.Draw, tool);
 
     /// <summary>Arms a one-shot zoom window; the next drag frames the view.</summary>
     public void UseZoomWindow() => SetMode(CanvasMode.ZoomWindow, null);
 
-    private void SetMode(CanvasMode mode, DrawTool? tool)
+    private void SetMode(CanvasMode mode, CanvasTool? tool)
     {
         _tool?.Cancel();
         _tool = tool;
         Mode = mode;
 
         // Drawing and selecting are different modes, and carrying a selection
-        // into a draw tool only makes the next Delete a surprise.
-        if (mode != CanvasMode.Select) Selection.Clear();
+        // into a draw tool only makes the next Delete a surprise. A modify
+        // tool is the exception: the selection is what it acts on.
+        if (mode != CanvasMode.Select && tool?.NeedsSelection != true) Selection.Clear();
 
         _snap = default;
         Cursor = mode == CanvasMode.Select ? Cursors.Arrow : Cursors.Cross;
@@ -371,7 +376,35 @@ public sealed class CadCanvas : FrameworkElement
         if (_tool is null || !_tool.InProgress || _drawing is null) return;
 
         var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
-        _tool.Preview(_snapped, context, new DisplayStyle(PreviewColor, Lineweight.Default));
+        var style = new DisplayStyle(PreviewColor, Lineweight.Default);
+
+        if (_tool is ModifyTool modify)
+        {
+            DrawModifyPreview(modify, context, style);
+            return;
+        }
+
+        _tool.Preview(_snapped, context, style);
+    }
+
+    /// <summary>
+    /// The selection drawn where the pending transform would put it.
+    /// </summary>
+    /// <remarks>
+    /// Done here rather than in the tool because it needs the selection, and
+    /// a tool that could see the selection could also edit it. Pushing the
+    /// transform onto the sink rather than moving anything means the preview
+    /// costs nothing and cannot leave the drawing changed if it is abandoned.
+    /// </remarks>
+    private void DrawModifyPreview(ModifyTool tool, in EmitContext context, in DisplayStyle style)
+    {
+        if (tool.Pending(_snapped) is not { } transform) return;
+
+        context.Sink.PushTransform(transform);
+
+        foreach (var entity in Selection.Ordered) entity.Emit(context, style);
+
+        context.Sink.PopTransform();
     }
 
     /// <summary>
@@ -601,9 +634,19 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     public void PlaceToolPoint(Vec2 world)
     {
-        if (_tool is null) return;
+        switch (_tool)
+        {
+            case DrawTool draw:
+                Commit(draw.Click(world));
+                break;
 
-        Commit(_tool.Click(world));
+            case ModifyTool modify:
+                Commit(modify, modify.Click(world));
+                break;
+
+            default:
+                return;
+        }
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);
@@ -612,9 +655,9 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Ends an open-ended tool, as Enter or a right click does.</summary>
     public void FinishTool()
     {
-        if (_tool is null) return;
+        if (_tool is not DrawTool draw) return;
 
-        Commit(_tool.Finish());
+        Commit(draw.Finish());
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);
@@ -630,6 +673,35 @@ public sealed class CadCanvas : FrameworkElement
 
         _drawing.Place(entity);
         Commands.Do(new AddEntities(_drawing.ActiveLayout, entity));
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Applies a finished modify transform to the selection, either moving it
+    /// or leaving a transformed copy behind.
+    /// </summary>
+    private void Commit(ModifyTool tool, Mat3? transform)
+    {
+        if (transform is not { } matrix || _drawing is null || Commands is null) return;
+        if (Selection.IsEmpty) return;
+
+        string name = char.ToUpperInvariant(tool.Name[0]) + tool.Name[1..];
+
+        if (tool.Duplicates)
+        {
+            var copy = new CopyEntities(_drawing.ActiveLayout, Selection.Ordered, matrix, name);
+            Commands.Do(copy);
+
+            // The copies are what you almost always want to act on next, and
+            // leaving the originals selected makes a second copy silently
+            // duplicate the wrong thing.
+            Selection.Set(copy.Copies);
+        }
+        else
+        {
+            Commands.Do(new TransformEntities(_drawing.ActiveLayout, Selection.Ordered, matrix, name));
+        }
 
         DrawingEdited?.Invoke(this, EventArgs.Empty);
     }

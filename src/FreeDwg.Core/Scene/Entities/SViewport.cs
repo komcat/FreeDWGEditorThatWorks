@@ -131,4 +131,7 @@ public sealed class SViewport : SceneEntity
         if (modes.HasFlag(SnapModes.Center))
             into.Add(new SnapCandidate(PaperRect.Center, SnapKind.Center));
     }
+
+    protected override void TransformGeometry(in Mat3 transform) =>
+        PaperRect = transform.TransformBounds(PaperRect);
 }

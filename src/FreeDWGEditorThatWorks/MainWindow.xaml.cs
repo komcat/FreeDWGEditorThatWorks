@@ -43,6 +43,7 @@ public partial class MainWindow : Window
         [
             SelectButton, LineButton, PolylineButton, RectangleButton,
             CircleButton, ArcButton, EllipseButton,
+            MoveButton, CopyButton, RotateButton, ScaleButton, MirrorButton,
         ];
 
         Canvas.CursorMoved += (_, world) =>
@@ -120,7 +121,7 @@ public partial class MainWindow : Window
 
     private void OnToolPicked(object sender, RoutedEventArgs e)
     {
-        DrawTool? tool = (sender as FrameworkElement)?.Name switch
+        CanvasTool? tool = (sender as FrameworkElement)?.Name switch
         {
             nameof(LineButton) => new LineTool(),
             nameof(PolylineButton) => new PolylineTool(),
@@ -128,8 +129,23 @@ public partial class MainWindow : Window
             nameof(CircleButton) => new CircleTool(),
             nameof(ArcButton) => new ArcTool(),
             nameof(EllipseButton) => new EllipseTool(),
+            nameof(MoveButton) => new MoveTool(),
+            nameof(CopyButton) => new CopyTool(),
+            nameof(RotateButton) => new RotateTool(),
+            nameof(ScaleButton) => new ScaleTool(),
+            nameof(MirrorButton) => new MirrorTool(),
             _ => null,
         };
+
+        // A modify tool with nothing selected has nothing to modify, and
+        // silently doing nothing would read as the button being broken.
+        if (tool is { NeedsSelection: true } && Canvas.Selection.IsEmpty)
+        {
+            StatusText.Text = $"Select something first, then pick {tool.Name}.";
+            SyncModeButtons();
+            Canvas.Focus();
+            return;
+        }
 
         if (tool is null) Canvas.UseSelect();
         else Canvas.UseTool(tool);
@@ -162,7 +178,7 @@ public partial class MainWindow : Window
             button.IsChecked = ReferenceEquals(button, active);
     }
 
-    private RadioButton? ButtonFor(DrawTool? tool) => tool switch
+    private RadioButton? ButtonFor(CanvasTool? tool) => tool switch
     {
         LineTool => LineButton,
         PolylineTool => PolylineButton,
@@ -170,6 +186,11 @@ public partial class MainWindow : Window
         CircleTool => CircleButton,
         ArcTool => ArcButton,
         EllipseTool => EllipseButton,
+        MoveTool => MoveButton,
+        CopyTool => CopyButton,
+        RotateTool => RotateButton,
+        ScaleTool => ScaleButton,
+        MirrorTool => MirrorButton,
         _ => null,
     };
 

@@ -146,6 +146,123 @@ public sealed class CanvasTests
         Assert.Equal(1, afterRedo);
     }
 
+    // ---- modify tools ----------------------------------------------------
+
+    /// <summary>Draws a line, selects it, and leaves it ready to be modified.</summary>
+    private static SLine DrawAndSelect(CadCanvas canvas, SceneDrawing drawing)
+    {
+        canvas.Snapping.Modes = SnapModes.None;
+
+        canvas.UseTool(new LineTool());
+        canvas.PlaceToolPoint(new Vec2(0, 0));
+        canvas.PlaceToolPoint(new Vec2(100, 0));
+
+        canvas.UseSelect();
+        canvas.PickAt(new Vec2(50, 0));
+
+        return (SLine)drawing.Entities[0];
+    }
+
+    [Fact]
+    public void MovingTheSelectionMovesItAndNothingElse()
+    {
+        var (count, start, end) = OnCanvas((canvas, drawing) =>
+        {
+            var line = DrawAndSelect(canvas, drawing);
+
+            canvas.UseTool(new MoveTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(10, 40));
+
+            return (drawing.Entities.Count, line.Start, line.End);
+        });
+
+        // Moved, not copied.
+        Assert.Equal(1, count);
+        Assert.Equal(new Vec2(10, 40), start);
+        Assert.Equal(new Vec2(110, 40), end);
+    }
+
+    [Fact]
+    public void AModifyToolKeepsTheSelectionItActsOn()
+    {
+        int selected = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+
+            // Every other tool clears the selection on the way in; a modify
+            // tool cannot, because the selection is its subject.
+            canvas.UseTool(new MoveTool());
+            return canvas.Selection.Count;
+        });
+
+        Assert.Equal(1, selected);
+    }
+
+    [Fact]
+    public void CopyingLeavesTheOriginalAndSelectsTheCopy()
+    {
+        var (count, originalStart, selectedIsCopy) = OnCanvas((canvas, drawing) =>
+        {
+            var line = DrawAndSelect(canvas, drawing);
+
+            canvas.UseTool(new CopyTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(0, 50));
+
+            return (drawing.Entities.Count, line.Start,
+                    canvas.Selection.Ordered.Count == 1 && !ReferenceEquals(canvas.Selection.Ordered[0], line));
+        });
+
+        Assert.Equal(2, count);
+        Assert.Equal(new Vec2(0, 0), originalStart);
+
+        // Selecting the copy rather than the original is what stops a second
+        // copy silently duplicating the wrong thing.
+        Assert.True(selectedIsCopy);
+    }
+
+    [Fact]
+    public void UndoingAMoveTakesTheGeometryBack()
+    {
+        var start = OnCanvas((canvas, drawing) =>
+        {
+            var line = DrawAndSelect(canvas, drawing);
+
+            canvas.UseTool(new MoveTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(70, 70));
+
+            canvas.Undo();
+            return line.Start;
+        });
+
+        Assert.Equal(new Vec2(0, 0), start);
+    }
+
+    [Fact]
+    public void AModifyToolWithNothingSelectedChangesNothing()
+    {
+        var (count, mode) = OnCanvas((canvas, drawing) =>
+        {
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(100, 0));
+
+            // Nothing picked, so there is nothing for a move to act on. The
+            // clicks have to fall through harmlessly rather than throw.
+            canvas.UseSelect();
+            canvas.UseTool(new MoveTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(50, 50));
+
+            return (drawing.Entities.Count, canvas.Mode);
+        });
+
+        Assert.Equal(1, count);
+        Assert.Equal(CanvasMode.Draw, mode);
+    }
+
     // ---- snapping, through the canvas -----------------------------------
 
     [Fact]

@@ -88,4 +88,16 @@ public sealed class SSpline : SceneEntity
         into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 0), SnapKind.Endpoint));
         into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 1), SnapKind.Endpoint));
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        // A B-spline is affine invariant: transforming the control points
+        // transforms the curve, with the knots and weights untouched.
+        var moved = new Vec2[ControlPoints.Count];
+        for (int i = 0; i < moved.Length; i++) moved[i] = transform.Transform(ControlPoints[i]);
+
+        ControlPoints = moved;
+    }
+
+    protected override void CloneGeometry() => ControlPoints = ControlPoints.ToArray();
 }

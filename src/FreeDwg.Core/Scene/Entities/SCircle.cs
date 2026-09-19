@@ -47,4 +47,10 @@ public sealed class SCircle : SceneEntity
         into.Add(new SnapCandidate(new Vec2(Center.X - Radius, Center.Y), SnapKind.Quadrant));
         into.Add(new SnapCandidate(new Vec2(Center.X, Center.Y - Radius), SnapKind.Quadrant));
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        Center = transform.Transform(Center);
+        Radius *= transform.UniformScale;
+    }
 }

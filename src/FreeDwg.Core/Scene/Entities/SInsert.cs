@@ -134,4 +134,11 @@ public sealed class SInsert : SceneEntity
         foreach (var candidate in local)
             into.Add(candidate with { Point = Transform.Transform(candidate.Point) });
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        // Compose rather than touch the definition: the whole point of an
+        // insert is that moving one does not move the other nine hundred.
+        Transform = Transform * transform;
+    }
 }

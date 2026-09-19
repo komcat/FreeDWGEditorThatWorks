@@ -106,4 +106,35 @@ public sealed class SHatch : SceneEntity
         // already flattened, so its vertices are neither authoritative nor
         // few -- a pattern fill would offer thousands of useless points.
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        var loops = new List<IReadOnlyList<Vec2>>(Loops.Count);
+
+        foreach (var loop in Loops)
+        {
+            var moved = new Vec2[loop.Count];
+            for (int i = 0; i < moved.Length; i++) moved[i] = transform.Transform(loop[i]);
+            loops.Add(moved);
+        }
+
+        Loops = loops;
+
+        // The pattern was clipped to the boundary at import, so it moves with
+        // it rather than being re-derived: re-deriving would need the pattern
+        // definition, which is not kept.
+        var segments = new Segment2[PatternSegments.Count];
+        for (int i = 0; i < segments.Length; i++)
+            segments[i] = new Segment2(
+                transform.Transform(PatternSegments[i].A),
+                transform.Transform(PatternSegments[i].B));
+
+        PatternSegments = segments;
+    }
+
+    protected override void CloneGeometry()
+    {
+        Loops = Loops.Select(loop => (IReadOnlyList<Vec2>)loop.ToArray()).ToList();
+        PatternSegments = PatternSegments.ToArray();
+    }
 }

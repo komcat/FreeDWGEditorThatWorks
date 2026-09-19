@@ -146,32 +146,32 @@
                         <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
                             <Button x:Name="EraseButton" Style="{StaticResource ToolButton}" Click="OnEraseClick"
                                     Tag="{StaticResource Icon.Erase}" ToolTip="Erase the selection  (Delete)" />
+                            <RadioButton x:Name="MoveButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Move}" ToolTip="Move  -  select first, then pick a base point and where it goes" />
+                            <RadioButton x:Name="CopyButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Copy}" ToolTip="Copy  -  select first, then pick a base point and where the copy goes" />
+                            <RadioButton x:Name="RotateButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Rotate}" ToolTip="Rotate  -  select first, then pick the centre and the angle" />
+                            <RadioButton x:Name="ScaleButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Scale}" ToolTip="Scale  -  select first, then pick a base point, a reference and where it should reach" />
+                            <RadioButton x:Name="MirrorButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Mirror}" ToolTip="Mirror  -  select first, then pick the mirror line. The original is kept" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Move}" ToolTip="Move  -  arrives with grips (E3)" />
+                                         Tag="{StaticResource Icon.Offset}" ToolTip="Offset  -  needs curve offsetting, which is a job of its own for splines and ellipses" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Copy}" ToolTip="Copy  -  arrives with grips (E3)" />
+                                         Tag="{StaticResource Icon.Array}" ToolTip="Array  -  needs somewhere to ask for row and column counts" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Rotate}" ToolTip="Rotate  -  arrives with grips (E3)" />
+                                         Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  needs curve-curve intersection" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Scale}" ToolTip="Scale  -  arrives with grips (E3)" />
+                                         Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  needs curve-curve intersection" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Mirror}" ToolTip="Mirror  -  arrives with grips (E3)" />
+                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  needs curve-curve intersection" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Offset}" ToolTip="Offset  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  needs curve-curve intersection" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Array}" ToolTip="Array  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  arrives with grips, which move single vertices rather than whole objects" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  needs curve intersection, which comes with snapping (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  needs curve intersection, which comes with snapping (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  needs curve intersection, which comes with snapping (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  needs curve intersection, which comes with snapping (E4)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  arrives with grips (E3)" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Explode}" ToolTip="Explode  -  arrives with the command stack (E2)" />
+                                         Tag="{StaticResource Icon.Explode}" ToolTip="Explode  -  needs breaking a block or a polyline into its parts" />
                         </UniformGrid>
                     </StackPanel>
                 </ScrollViewer>

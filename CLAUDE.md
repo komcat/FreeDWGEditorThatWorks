@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 246 tests, ~0.6s
+dotnet test                 # 272 tests, ~0.5s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -58,9 +58,15 @@ with no WPF and no parser present. Do not add either reference to Core.
   edit the writer cannot see. `CommandStack.Summarize()` replays the stack
   into a `ChangeLog` rather than tracking it as edits happen, so undo cannot
   leave it claiming a change that is no longer there.
-- **A `DrawTool` takes world points and returns an entity.** It holds no
-  reference to a drawing, so it *cannot* reach past the command stack. That
-  also makes the whole set testable as arithmetic, with no mouse involved.
+- **A `CanvasTool` takes world points and returns a result** — an entity for
+  a `DrawTool`, a `Mat3` for a `ModifyTool`. It holds no reference to a
+  drawing, so it *cannot* reach past the command stack, and the whole set
+  tests as arithmetic with no mouse involved. The canvas holds exactly one
+  tool field, for the same reason `Mode` is an enum.
+- **`SceneEntity.Transform` is not virtual;** `TransformGeometry` is. The
+  wrapper drops the bounds cache afterwards, so an entity cannot move and
+  leave itself culled where it used to be. The layout's bounds and index are
+  a level up and the command invalidates those.
 - **Entities offer their own snap points** (`CollectSnapPoints`), the third
   thing they do for themselves after emitting and hit testing.
 - **`CadCanvas.Mode` is the single answer to "what does a left click do".**

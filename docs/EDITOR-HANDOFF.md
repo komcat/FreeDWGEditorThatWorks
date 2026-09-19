@@ -22,6 +22,7 @@ it. 165 tests pass in about half a second.
 | E2 | — | command stack, undo/redo, change log |
 | E4 | — | new documents and six draw tools |
 | E4 | — | object snap, ortho, grid; one canvas mode |
+| E3 | — | move, copy, rotate, scale, mirror |
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -164,12 +165,37 @@ itself from them, which is where this kind of bookkeeping goes wrong.
 entity order is painting order: an entity restored on top of what it used to
 sit under has not really been restored.
 
-**E3 — Grips.** Move, and drag endpoints. The first real test of whether the
-scene model is comfortable to mutate; expect to find that some entity caches
-(`Bounds`, `BlockDefinition.Bounds`, and now `Layout.Index`) need
-invalidating more carefully than they do now. `SceneEntity.InvalidateBounds`
-exists but nothing calls it yet, and nothing carries it up to the layout that
-indexed the entity. E3 is where that has to be sorted out.
+**E3 — Modify tools. Done for the transform family; grips still to come.**
+Move, copy, rotate, scale and mirror all work on the selection, through the
+command stack, with a live preview and undo.
+
+`SceneEntity.Transform` is the third piece of double dispatch, after emitting
+and hit testing. It is deliberately *not* virtual: the override is
+`TransformGeometry`, and the wrapper drops the bounds cache afterwards. That
+was the trap this milestone was warned about, and making it structurally
+impossible beat remembering. The layout's own bounds and its spatial index
+are a level up, so `TransformEntities` invalidates those.
+
+The arc-winding trap came back exactly where it was predicted. A mirror turns
+the plane over, so a mirrored arc sweeps the other way and a mirrored bulge
+negates — and endpoints and bounds are identical either way, so only pixels
+say whether it is inside out. `Mat3.IsMirror` is how every entity asks, and
+there is a render test for it.
+
+Undo applies the inverse rather than restoring a snapshot: exact to double
+rounding for an affine transform, and it avoids every entity having to know
+how to copy and restore its own geometry. A transform with no inverse is
+refused at construction instead of failing at undo time.
+
+`SceneEntity.Clone` is shallow by default — most entities are value fields
+all the way down — with `CloneGeometry` for the few holding arrays. A block
+reference is deliberately *not* deep copied, since instancing a definition is
+the whole point of one. A clone carries no `SourceHandle`: it was never in
+the file, and giving it the original's handle would have a save overwrite the
+original with the copy.
+
+Still to come here: grips proper, which move single vertices rather than
+whole objects, and which is what Stretch is waiting for.
 
 **E4 — Draw tools and snapping. Mostly done.** Line, polyline, rectangle,
 circle, three-point arc and ellipse all draw, on the current layer, through
@@ -281,3 +307,10 @@ noticed:
 - The snap search is a spatial-index query per mouse move, which is fine, but
   it collects every candidate from every nearby entity before choosing. A
   drawing with a very dense block under the cursor would feel it.
+- Rotate reads its angle straight off the second point, so dragging right is
+  zero. With coordinate entry it should take a reference direction instead,
+  the way Scale already takes a reference distance.
+- A non-uniform scale would turn a circle into an ellipse, which `SCircle`
+  cannot represent; it approximates with the uniform scale. Nothing produces
+  one today, and a tool that did would have to replace the entity rather than
+  transform it.

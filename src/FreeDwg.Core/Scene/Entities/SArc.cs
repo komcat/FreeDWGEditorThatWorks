@@ -82,4 +82,20 @@ public sealed class SArc : SceneEntity
                 into.Add(new SnapCandidate(ArcMath.PointAt(Center, Radius, angle), SnapKind.Quadrant));
         }
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        // Take the start point across before the centre moves, so the new
+        // start angle is measured from where the arc actually begins.
+        Vec2 start = transform.Transform(StartPoint);
+
+        Center = transform.Transform(Center);
+        Radius *= transform.UniformScale;
+        StartAngle = (start - Center).Angle();
+
+        // A mirror turns the plane over, so the arc sweeps the other way
+        // round. Miss this and every arc in a mirrored selection bulges
+        // inside out while its endpoints stay exactly where they belong.
+        if (transform.IsMirror) Sweep = -Sweep;
+    }
 }

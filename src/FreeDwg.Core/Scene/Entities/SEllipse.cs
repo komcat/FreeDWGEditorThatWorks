@@ -105,4 +105,19 @@ public sealed class SEllipse : SceneEntity
                 EllipseMath.PointAt(Center, MajorAxis, Ratio, parameter), SnapKind.Quadrant));
         }
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        Center = transform.Transform(Center);
+
+        // The major axis is a direction and a length at once, so it goes
+        // across as a vector; the ratio survives any similarity untouched.
+        MajorAxis = transform.TransformVector(MajorAxis);
+
+        if (transform.IsMirror)
+        {
+            StartParameter = -StartParameter;
+            Sweep = -Sweep;
+        }
+    }
 }

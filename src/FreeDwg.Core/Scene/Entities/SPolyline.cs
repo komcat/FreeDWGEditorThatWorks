@@ -179,4 +179,25 @@ public sealed class SPolyline : SceneEntity
             if (wantsCenter) into.Add(new SnapCandidate(center, SnapKind.Center));
         }
     }
+
+    protected override void TransformGeometry(in Mat3 transform)
+    {
+        bool mirrored = transform.IsMirror;
+        var moved = new PolyVertex[Vertices.Length];
+
+        for (int i = 0; i < moved.Length; i++)
+        {
+            var vertex = Vertices[i];
+
+            // A bulge is a signed sweep, so a mirror negates it for the same
+            // reason it negates an arc's.
+            moved[i] = new PolyVertex(
+                transform.Transform(vertex.Point),
+                mirrored ? -vertex.Bulge : vertex.Bulge);
+        }
+
+        Vertices = moved;
+    }
+
+    protected override void CloneGeometry() => Vertices = (PolyVertex[])Vertices.Clone();
 }
