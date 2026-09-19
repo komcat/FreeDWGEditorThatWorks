@@ -137,4 +137,13 @@ public sealed class SHatch : SceneEntity
         Loops = Loops.Select(loop => (IReadOnlyList<Vec2>)loop.ToArray()).ToList();
         PatternSegments = PatternSegments.ToArray();
     }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        // The boundary loops, so a line can be trimmed where a filled region
+        // begins. The pattern strokes are fill, not edges, and are left out.
+        foreach (var loop in Loops)
+            for (int i = 0; i < loop.Count; i++)
+                into.Add(CurvePiece.Segment(loop[i], loop[(i + 1) % loop.Count]));
+    }
 }

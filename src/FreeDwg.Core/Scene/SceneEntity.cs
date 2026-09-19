@@ -87,6 +87,19 @@ public abstract class SceneEntity
     public abstract void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into);
 
     /// <summary>
+    /// Offers this entity's geometry as segments and arcs, which is what
+    /// intersection works on.
+    /// </summary>
+    /// <remarks>
+    /// Exact for lines, arcs, circles and polylines. Ellipses and splines
+    /// flatten at <paramref name="tolerance"/>, so an intersection found
+    /// against one is only as good as the flattening -- fine for trimming to
+    /// a spline, not something to build a tolerance stack on. An entity with
+    /// no curve to speak of offers nothing, and simply cannot be trimmed to.
+    /// </remarks>
+    public abstract void CollectCurves(ICollection<CurvePiece> into, double tolerance);
+
+    /// <summary>
     /// Moves this entity by an affine transform, in place.
     /// </summary>
     /// <remarks>

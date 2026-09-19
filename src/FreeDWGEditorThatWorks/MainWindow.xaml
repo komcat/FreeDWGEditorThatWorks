@@ -73,6 +73,21 @@
                 <ToggleButton x:Name="QuadrantSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
                               Tag="{StaticResource Icon.SnapQuadrant}" Click="OnSnapToggled"
                               ToolTip="Snap to quadrants  -  the top, bottom, left and right of a circle" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <!--
+                    Fillet radius and chamfer distance share this box: both
+                    ask the same question, and zero means a sharp corner in
+                    either. It is also the first numeric entry in the app,
+                    and where real coordinate entry should grow from.
+                -->
+                <TextBlock Text="R" VerticalAlignment="Center" Margin="2,0,4,0"
+                           Foreground="{StaticResource Tool.GroupLabel}" />
+                <TextBox x:Name="RadiusBox" Text="0" Width="52" VerticalAlignment="Center"
+                         VerticalContentAlignment="Center" TextAlignment="Right"
+                         TextChanged="OnRadiusChanged"
+                         ToolTip="Fillet radius and chamfer distance. Zero brings the lines to a sharp corner" />
             </StackPanel>
         </Border>
 
@@ -160,18 +175,20 @@
                                          Tag="{StaticResource Icon.Offset}" ToolTip="Offset  -  needs curve offsetting, which is a job of its own for splines and ellipses" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Array}" ToolTip="Array  -  needs somewhere to ask for row and column counts" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  needs curve-curve intersection" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  needs curve-curve intersection" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  needs curve-curve intersection" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  needs curve-curve intersection" />
+                            <RadioButton x:Name="TrimButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  click the part of a line or arc to cut away" />
+                            <RadioButton x:Name="ExtendButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  click near the end to push out to its neighbour" />
+                            <RadioButton x:Name="FilletButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  click two lines on the sides to keep. Radius 0 makes a sharp corner" />
+                            <RadioButton x:Name="ChamferButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  click two lines on the sides to keep" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  arrives with grips, which move single vertices rather than whole objects" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Explode}" ToolTip="Explode  -  needs breaking a block or a polyline into its parts" />
+                            <RadioButton x:Name="TangentButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Tangent}" ToolTip="Tangent  -  click a circle, then a line it should sit against" />
                         </UniformGrid>
                     </StackPanel>
                 </ScrollViewer>

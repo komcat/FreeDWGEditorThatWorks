@@ -98,4 +98,10 @@ public sealed class SArc : SceneEntity
         // inside out while its endpoints stay exactly where they belong.
         if (transform.IsMirror) Sweep = -Sweep;
     }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        if (Radius > 0 && Math.Abs(Sweep) > 1e-12)
+            into.Add(CurvePiece.Arc(Center, Radius, StartAngle, Sweep));
+    }
 }

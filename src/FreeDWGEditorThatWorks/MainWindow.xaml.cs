@@ -30,6 +30,18 @@ public partial class MainWindow : Window
     /// </summary>
     private readonly RadioButton[] _toolButtons;
 
+    /// <summary>
+    /// False until the constructor has finished.
+    /// </summary>
+    /// <remarks>
+    /// Setting a property in XAML can raise its change event while the parser
+    /// is still working, before the elements further down the file exist. A
+    /// handler that runs then and reaches for one of them gets a null, and
+    /// the app dies before it draws anything.
+    /// </remarks>
+    private bool _ready;
+
+
     private ImportDiagnostics? _diagnostics;
     private string _documentName = "Untitled";
 
@@ -44,6 +56,7 @@ public partial class MainWindow : Window
             SelectButton, LineButton, PolylineButton, RectangleButton,
             CircleButton, ArcButton, EllipseButton,
             MoveButton, CopyButton, RotateButton, ScaleButton, MirrorButton,
+            TrimButton, ExtendButton, FilletButton, ChamferButton, TangentButton,
         ];
 
         Canvas.CursorMoved += (_, world) =>
@@ -75,6 +88,7 @@ public partial class MainWindow : Window
         InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Undo), Key.Z, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Redo), Key.Y, ModifierKeys.Control));
 
+        _ready = true;
         NewDrawing();
     }
 
@@ -134,6 +148,11 @@ public partial class MainWindow : Window
             nameof(RotateButton) => new RotateTool(),
             nameof(ScaleButton) => new ScaleTool(),
             nameof(MirrorButton) => new MirrorTool(),
+            nameof(TrimButton) => new TrimTool(),
+            nameof(ExtendButton) => new ExtendTool(),
+            nameof(FilletButton) => new FilletTool { Radius = _cornerSize },
+            nameof(ChamferButton) => new ChamferTool { Radius = _cornerSize },
+            nameof(TangentButton) => new TangentMateTool(),
             _ => null,
         };
 
@@ -191,8 +210,38 @@ public partial class MainWindow : Window
         RotateTool => RotateButton,
         ScaleTool => ScaleButton,
         MirrorTool => MirrorButton,
+        TrimTool => TrimButton,
+        ExtendTool => ExtendButton,
+        // Chamfer derives from fillet, so it has to be asked about first.
+        ChamferTool => ChamferButton,
+        FilletTool => FilletButton,
+        TangentMateTool => TangentButton,
         _ => null,
     };
+
+    /// <summary>
+    /// Fillet radius and chamfer distance, which are the same question asked
+    /// twice. Kept here rather than read from the box on demand so that a
+    /// half-typed number cannot reach a tool mid-operation.
+    /// </summary>
+    private double _cornerSize;
+
+    private void OnRadiusChanged(object sender, TextChangedEventArgs e)
+    {
+        // Text="0" in the markup raises this during InitializeComponent,
+        // when the canvas this goes on to touch has not been created yet.
+        if (!_ready) return;
+
+        if (!double.TryParse(RadiusBox.Text, out double value) || value < 0) return;
+
+        _cornerSize = value;
+
+        // A tool already running picks the new figure up, so the box can be
+        // adjusted between the first line and the second.
+        if (Canvas.Tool is FilletTool fillet) fillet.Radius = value;
+
+        UpdateStatus();
+    }
 
     /// <summary>
     /// The grid switch does both jobs: showing it and snapping to it. They
@@ -353,6 +402,7 @@ public partial class MainWindow : Window
     /// <summary>The selected row is the layer new geometry is drawn on.</summary>
     private void OnLayerSelected(object sender, SelectionChangedEventArgs e)
     {
+        if (!_ready) return;
         if (Canvas.Drawing is not { } drawing) return;
         if (LayerList.SelectedIndex < 0) return;
 

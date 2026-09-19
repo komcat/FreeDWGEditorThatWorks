@@ -200,4 +200,26 @@ public sealed class SPolyline : SceneEntity
     }
 
     protected override void CloneGeometry() => Vertices = (PolyVertex[])Vertices.Clone();
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            var from = Vertices[i];
+            Vec2 to = Vertices[(i + 1) % Vertices.Length].Point;
+
+            if (Math.Abs(from.Bulge) < 1e-12)
+            {
+                into.Add(CurvePiece.Segment(from.Point, to));
+                continue;
+            }
+
+            // Bulges are arcs, and trimming to the chord of one would cut in
+            // the wrong place by a whole sagitta.
+            var (center, radius, startAngle, sweep) = ArcMath.FromBulge(from.Point, to, from.Bulge);
+
+            if (radius > 0) into.Add(CurvePiece.Arc(center, radius, startAngle, sweep));
+            else into.Add(CurvePiece.Segment(from.Point, to));
+        }
+    }
 }

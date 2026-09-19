@@ -45,4 +45,7 @@ public sealed class SLine : SceneEntity
         Start = transform.Transform(Start);
         End = transform.Transform(End);
     }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance) =>
+        into.Add(CurvePiece.Segment(Start, End));
 }

@@ -53,4 +53,9 @@ public sealed class SCircle : SceneEntity
         Center = transform.Transform(Center);
         Radius *= transform.UniformScale;
     }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        if (Radius > 0) into.Add(CurvePiece.Circle(Center, Radius));
+    }
 }

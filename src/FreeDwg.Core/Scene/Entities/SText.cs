@@ -182,4 +182,10 @@ public sealed class SText : SceneEntity
     }
 
     protected override void CloneGeometry() => Lines = Lines.ToArray();
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        // Nothing. Glyph outlines belong to the font, and trimming a line to
+        // the side of a letter is not an operation anyone wants.
+    }
 }

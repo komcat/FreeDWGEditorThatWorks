@@ -23,6 +23,7 @@ it. 165 tests pass in about half a second.
 | E4 | — | new documents and six draw tools |
 | E4 | — | object snap, ortho, grid; one canvas mode |
 | E3 | — | move, copy, rotate, scale, mirror |
+| E4 | — | curve intersection: trim, extend, fillet, chamfer, tangent |
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -243,10 +244,45 @@ endpoint, triangle for a midpoint, circle for a centre, diamond for a
 quadrant. That is not decoration: it is the only way to tell that a point
 landed on the thing you aimed at rather than a pixel away.
 
-Still to do here: intersection and perpendicular snaps, tangent, polygon
-(which needs somewhere to ask for a side count), text (which needs an
-editor), and trim/extend/fillet/chamfer, which all want the curve-curve
-intersection that an intersection snap would need anyway.
+**Curve-curve intersection landed next, and unlocked four tools at once.**
+`Geometry/Intersection` works on `CurvePiece` -- a segment or an arc -- so
+there are three cases to solve rather than one per pair of entity types.
+Entities reduce themselves through `CollectCurves`, exactly for lines, arcs,
+circles and polylines, and by flattening for ellipses and splines. All of it
+is closed form: an intersection a fraction of a unit out is a gap, and gaps
+are what this whole family of operations exists to remove.
+
+`Intersection.Unbounded` is the extend case, where the crossings *outside*
+the segment's own range are the entire point.
+
+Trim, extend, fillet and chamfer all go through `Editing`, and all express
+themselves as an `EditPlan` -- these entities out, those in. Trimming a
+circle leaves an arc and trimming the middle of a line leaves two lines, so
+none of them is a transform and none is purely an add or a delete. One
+`ReplaceEntities` command covers all four, and a replacement inherits the
+original's `SourceHandle`, so a trimmed line is still the line the file knows
+about.
+
+Where you click each line is the whole user interface for fillet and
+chamfer: it says which half survives. Radius zero brings the lines to a sharp
+corner, which is quietly one of AutoCAD's most used features. Lines only --
+arc-to-line fillets are a much larger problem and line-to-line is the
+overwhelming majority of real use.
+
+Tangent mate is the odd one out: it moves a circle until it touches a line,
+keeps the circle's identity and handle, and so goes through the transform
+command rather than a replacement. It keeps the circle on the side it
+started, because a circle that jumped across the line it was being mated to
+would be a surprise.
+
+The fillet radius box is the first numeric entry in the app, and is where
+real coordinate entry should grow from.
+
+Still to do: intersection and perpendicular snaps (the geometry for the first
+now exists and is just not wired to the snap engine); polygon, which needs
+somewhere to ask for a side count; text, which needs an editor; offset, which
+needs real curve offsetting; array, which needs row and column counts; and
+explode.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at
@@ -307,6 +343,10 @@ noticed:
 - The snap search is a spatial-index query per mouse move, which is fine, but
   it collects every candidate from every nearby entity before choosing. A
   drawing with a very dense block under the cursor would feel it.
+- `SInsert.Placement` was called `Transform` until it collided with
+  `SceneEntity.Transform`. Any old notes saying `insert.Transform` mean that.
+- Trim and extend handle lines, arcs and circles. A polyline has to be
+  exploded first, which is a tool that does not exist yet.
 - Rotate reads its angle straight off the second point, so dragging right is
   zero. With coordinate entry it should take a reference direction instead,
   the way Scale already takes a reference distance.

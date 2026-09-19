@@ -14,6 +14,20 @@ a window to find out. With `FREEDWG_TEST_RENDERS` set it also writes
 `icons.png`, a labelled contact sheet — which is how to tell an icon that
 parses from an icon that reads.
 
+**`StartupTests`** launches the real executable and waits for a window. It
+is the only test that builds one, and it exists because a `StaticResource`
+that resolves to nothing, or a handler that fires while the XAML is still
+being parsed and reaches for an element further down the file, compiles
+clean, passes everything else here, and kills the app before it draws a
+pixel. Waiting for the process to *exit* is not enough: an unhandled
+exception on the UI thread can leave it alive under Windows error reporting,
+so a crash would look like a pass.
+
+**`IntersectionTests` and `EditingTests`** cover where curves cross and what
+trim, extend, fillet and chamfer make of it. Every crossing is asserted to
+full precision, because "near enough" is the failure being guarded against,
+not an acceptable result.
+
 **`TransformTests`** covers moving entities and the modify tools. The case
 worth knowing is the mirrored arc: its endpoints and its bounds are identical
 whether or not the sweep was reversed, so the model-level test asserts the

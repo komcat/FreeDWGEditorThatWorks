@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 272 tests, ~0.5s
+dotnet test                 # 311 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -17,7 +17,8 @@ debug one. Read it before changing anything they cover.
 ```
 src/FreeDwg.Core/          net10.0          scene model, geometry, renderer
   Commands/                                 every mutation, undoably
-  Tools/                                    draw tools, input-agnostic
+  Tools/                                    draw, modify and entity tools
+  Editing/                                  trim, extend, fillet, chamfer
   Picking/                                  hit testing, selection, spatial index
   Snapping/                                 object snap, ortho, the grid
 src/FreeDwg.Interop.Acad/  net10.0          ACadSharp -> scene  (the only project that sees ACadSharp)
@@ -67,6 +68,14 @@ with no WPF and no parser present. Do not add either reference to Core.
   wrapper drops the bounds cache afterwards, so an entity cannot move and
   leave itself culled where it used to be. The layout's bounds and index are
   a level up and the command invalidates those.
+- **Intersection works on `CurvePiece`, not on entities.** Everything reduces
+  to segments and arcs first, so there are three cases rather than a hundred.
+  `CollectCurves` is how an entity offers itself up.
+- **The app is smoke tested by running it.** `StartupTests` launches the real
+  executable and waits for a window. A `StaticResource` that resolves to
+  nothing, or a handler that fires mid-XAML-parse, compiles clean, passes
+  every other test, and kills the app before it draws. That has happened
+  twice.
 - **Entities offer their own snap points** (`CollectSnapPoints`), the third
   thing they do for themselves after emitting and hit testing.
 - **`CadCanvas.Mode` is the single answer to "what does a left click do".**

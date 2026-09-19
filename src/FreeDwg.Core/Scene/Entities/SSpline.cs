@@ -100,4 +100,12 @@ public sealed class SSpline : SceneEntity
     }
 
     protected override void CloneGeometry() => ControlPoints = ControlPoints.ToArray();
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        if (ControlPoints.Count < 2) return;
+
+        var points = Flatten(tolerance);
+        for (int i = 1; i < points.Length; i++) into.Add(CurvePiece.Segment(points[i - 1], points[i]));
+    }
 }

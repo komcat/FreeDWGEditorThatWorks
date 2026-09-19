@@ -20,25 +20,32 @@ public sealed class SInsert : SceneEntity
     public SInsert(BlockDefinition block, Mat3 transform)
     {
         Block = block;
-        Transform = transform;
+        Placement = transform;
     }
 
     public BlockDefinition Block { get; set; }
 
-    /// <summary>Block-local space to the space containing this insert.</summary>
-    public Mat3 Transform { get; set; }
+    /// <summary>
+    /// Block-local space to the space containing this insert.
+    /// </summary>
+    /// <remarks>
+    /// Not called Transform, because <see cref="SceneEntity.Transform"/> is
+    /// the verb every entity answers to and a property of the same name would
+    /// quietly hide it.
+    /// </remarks>
+    public Mat3 Placement { get; set; }
 
-    protected override Bounds2 ComputeBounds() => Transform.TransformBounds(Block.Bounds);
+    protected override Bounds2 ComputeBounds() => Placement.TransformBounds(Block.Bounds);
 
     public override void Emit(in EmitContext context, in DisplayStyle style)
     {
         if (context.Depth >= EmitContext.MaxDepth) return;
 
-        context.Sink.PushTransform(Transform);
+        context.Sink.PushTransform(Placement);
 
         // A scaled block changes what a drawing unit is worth on screen, which
         // is what the curve entities inside it use to choose their sampling.
-        double scale = Math.Sqrt(Math.Abs(Transform.Determinant));
+        double scale = Math.Sqrt(Math.Abs(Placement.Determinant));
         var nested = context.Nested() with
         {
             PixelsPerUnit = context.PixelsPerUnit * (scale > 0 ? scale : 1.0),
@@ -75,9 +82,9 @@ public sealed class SInsert : SceneEntity
     public override double DistanceTo(Vec2 point, in PickContext context)
     {
         if (context.Depth >= PickContext.MaxDepth) return double.PositiveInfinity;
-        if (!Transform.TryInvert(out var toLocal)) return double.PositiveInfinity;
+        if (!Placement.TryInvert(out var toLocal)) return double.PositiveInfinity;
 
-        double scale = Transform.UniformScale;
+        double scale = Placement.UniformScale;
         if (scale <= 1e-300) return double.PositiveInfinity;
 
         var nested = context.Nested(scale);
@@ -101,9 +108,9 @@ public sealed class SInsert : SceneEntity
     public override bool IntersectsRect(Bounds2 rect, in PickContext context)
     {
         if (context.Depth >= PickContext.MaxDepth || !Bounds.Intersects(rect)) return false;
-        if (!Transform.TryInvert(out var toLocal)) return false;
+        if (!Placement.TryInvert(out var toLocal)) return false;
 
-        double scale = Transform.UniformScale;
+        double scale = Placement.UniformScale;
         if (scale <= 1e-300) return false;
 
         // A rotated instance turns the rectangle into a rotated one, which the
@@ -132,13 +139,51 @@ public sealed class SInsert : SceneEntity
         foreach (var child in Block.Entities) child.CollectSnapPoints(modes, local);
 
         foreach (var candidate in local)
-            into.Add(candidate with { Point = Transform.Transform(candidate.Point) });
+            into.Add(candidate with { Point = Placement.Transform(candidate.Point) });
     }
 
     protected override void TransformGeometry(in Mat3 transform)
     {
         // Compose rather than touch the definition: the whole point of an
         // insert is that moving one does not move the other nine hundred.
-        Transform = Transform * transform;
+        Placement = Placement * transform;
+    }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        // Block geometry can be trimmed *to*, though not trimmed itself: the
+        // definition is shared, so cutting it would cut every instance.
+        var local = new List<CurvePiece>();
+        double scale = Placement.UniformScale;
+
+        foreach (var child in Block.Entities)
+            child.CollectCurves(local, scale > 0 ? tolerance / scale : tolerance);
+
+        foreach (var piece in local)
+        {
+            if (piece.IsArc && Placement.IsSimilarity)
+            {
+                Vec2 start = Placement.Transform(piece.A);
+                Vec2 center = Placement.Transform(piece.Center);
+
+                into.Add(CurvePiece.Arc(center, piece.Radius * scale,
+                    (start - center).Angle(), Placement.IsMirror ? -piece.Sweep : piece.Sweep));
+                continue;
+            }
+
+            if (!piece.IsArc)
+            {
+                into.Add(CurvePiece.Segment(Placement.Transform(piece.A), Placement.Transform(piece.B)));
+                continue;
+            }
+
+            // A non-uniform scale turns the arc into an ellipse, which has no
+            // CurvePiece; flatten it rather than pretend it is still an arc.
+            var points = ArcMath.Tessellate(piece.Center, piece.Radius, piece.StartAngle, piece.Sweep,
+                Resolution.DeviceRadius(piece.Radius, tolerance));
+
+            for (int i = 1; i < points.Length; i++)
+                into.Add(CurvePiece.Segment(Placement.Transform(points[i - 1]), Placement.Transform(points[i])));
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using FreeDwg.Core.Commands;
 using FreeDwg.Core.Geometry;
+using FreeDwg.Core.Editing;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Tools;
 using FreeDwg.Tests.Rendering;
@@ -113,6 +114,39 @@ public sealed class DrawingRenderTests
         probe.AssertBlank(165, 50, "the erased circle");
         probe.AssertInk(50, 10, "the line, which was not erased");
         probe.AssertInk(140, 110, "the arc, which was not erased");
+    }
+
+    [Fact]
+    public void TrimmingCutsTheStretchThatWasClicked()
+    {
+        var drawing = SceneDrawing.CreateEmpty();
+        var stack = new CommandStack(drawing);
+
+        // A long rail crossed by two uprights at x = 40 and x = 80.
+        Use(drawing, stack, new LineTool(), new Vec2(0, 50), new Vec2(120, 50));
+        Use(drawing, stack, new LineTool(), new Vec2(40, 10), new Vec2(40, 90));
+        Use(drawing, stack, new LineTool(), new Vec2(80, 10), new Vec2(80, 90));
+
+        var rail = drawing.Entities[0];
+
+        var boundaries = new List<CurvePiece>();
+        foreach (var entity in drawing.Entities.Skip(1)) entity.CollectCurves(boundaries, 0.01);
+
+        // Clicked between the uprights, so that is the stretch that goes.
+        var plan = Trimming.Trim(rail, boundaries, new Vec2(60, 50));
+        stack.Do(new ReplaceEntities(drawing.ActiveLayout, plan, "Trim"));
+
+        var probe = new Probe(StaRenderer.Render(drawing, saveAs: "tools_trimmed"));
+
+        probe.AssertBlank(60, 50, "the stretch between the uprights, cut away");
+        probe.AssertInk(20, 50, "the rail to the left of the first upright");
+        probe.AssertInk(100, 50, "the rail to the right of the second");
+        probe.AssertInk(40, 30, "the uprights, untouched");
+
+        // And it comes back: two pieces out, one line in.
+        stack.Undo();
+        var after = new Probe(StaRenderer.Render(drawing, saveAs: "tools_untrimmed"));
+        after.AssertInk(60, 50, "the rail after undo");
     }
 
     [Fact]

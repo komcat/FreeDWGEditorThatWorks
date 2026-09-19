@@ -2,6 +2,7 @@
 using System.Windows.Input;
 using System.Windows.Media;
 using FreeDwg.Core.Commands;
+using FreeDwg.Core.Editing;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
@@ -373,7 +374,8 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     private void DrawToolPreview(IDrawingSink sink)
     {
-        if (_tool is null || !_tool.InProgress || _drawing is null) return;
+        if (_tool is null || _drawing is null) return;
+        if (!_tool.InProgress && _tool is not ModifyTool) return;
 
         var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
         var style = new DisplayStyle(PreviewColor, Lineweight.Default);
@@ -383,6 +385,10 @@ public sealed class CadCanvas : FrameworkElement
             DrawModifyPreview(modify, context, style);
             return;
         }
+
+        // An entity tool has no rubber geometry: what it has picked so far is
+        // shown by the selection highlight instead.
+        if (_tool is EntityTool) return;
 
         _tool.Preview(_snapped, context, style);
     }
@@ -465,7 +471,13 @@ public sealed class CadCanvas : FrameworkElement
         if (Mode == CanvasMode.Draw && e.ChangedButton == MouseButton.Left)
         {
             Point picked = e.GetPosition(this);
-            PlaceToolPoint(ResolvePoint(Camera.ScreenToWorld(new Vec2(picked.X, picked.Y))));
+            var world = Camera.ScreenToWorld(new Vec2(picked.X, picked.Y));
+
+            // An entity tool wants what is under the cursor, not a snapped
+            // coordinate: it is pointing at objects, not placing points.
+            if (_tool is EntityTool) PickEntityForTool(world);
+            else PlaceToolPoint(ResolvePoint(world));
+
             e.Handled = true;
             return;
         }
@@ -650,6 +662,89 @@ public sealed class CadCanvas : FrameworkElement
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Hands an entity tool whatever is under the cursor, along with the
+    /// curves of everything around it to work against.
+    /// </summary>
+    public void PickEntityForTool(Vec2 world)
+    {
+        if (_tool is not EntityTool tool || _drawing is null || Commands is null) return;
+
+        var hit = Picker.At(_drawing, world, PickTolerance);
+        var plan = tool.Click(new EntityPick(hit, world, BoundariesAround(world, hit)));
+
+        Apply(tool, plan);
+
+        // Whatever the tool is still holding shows as selected, so a fillet
+        // waiting for its second line says which first line it has.
+        Selection.Set(tool.PickedEntities);
+
+        InvalidateVisual();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The curves of everything near the click except the thing clicked.
+    /// </summary>
+    /// <remarks>
+    /// AutoCAD makes you select cutting edges first; taking everything nearby
+    /// instead is what modern CAD does and saves a step that is nearly always
+    /// answered with "all of it". Nearby rather than everything so that a
+    /// drawing of a hundred thousand objects does not flatten all of them for
+    /// one click -- the window is the view, since a boundary you cannot see
+    /// is not one you meant.
+    /// </remarks>
+    private IReadOnlyList<CurvePiece> BoundariesAround(Vec2 world, SceneEntity? exclude)
+    {
+        if (_drawing is null) return [];
+
+        var index = _drawing.ActiveLayout.Index;
+        var nearby = new List<int>();
+        index.Query(Camera.VisibleWorldBounds, nearby);
+
+        var curves = new List<CurvePiece>();
+        double tolerance = Math.Max(PickTolerance / 4, 1e-9);
+
+        foreach (int position in nearby)
+        {
+            var entity = index[position];
+            if (ReferenceEquals(entity, exclude)) continue;
+
+            if ((uint)entity.LayerIndex < (uint)_drawing.Layers.Count &&
+                !_drawing.Layers[entity.LayerIndex].IsVisible)
+            {
+                continue;
+            }
+
+            entity.CollectCurves(curves, tolerance);
+        }
+
+        return curves;
+    }
+
+    private void Apply(EntityTool tool, in EditPlan plan)
+    {
+        if (_drawing is null || Commands is null) return;
+
+        // Tangent mate is a move rather than a swap: the circle keeps its
+        // identity, so it goes through the transform command instead.
+        if (tool is TangentMateTool { Offset: { } offset, Target: { } target })
+        {
+            Commands.Do(new TransformEntities(_drawing.ActiveLayout, [target],
+                Mat3.Translation(offset), "Mate"));
+
+            DrawingEdited?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (plan.IsEmpty) return;
+
+        string name = char.ToUpperInvariant(tool.Name[0]) + tool.Name[1..];
+        Commands.Do(new ReplaceEntities(_drawing.ActiveLayout, plan, name));
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Ends an open-ended tool, as Enter or a right click does.</summary>

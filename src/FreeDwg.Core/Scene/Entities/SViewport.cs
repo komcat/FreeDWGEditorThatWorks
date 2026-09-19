@@ -134,4 +134,13 @@ public sealed class SViewport : SceneEntity
 
     protected override void TransformGeometry(in Mat3 transform) =>
         PaperRect = transform.TransformBounds(PaperRect);
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        if (PaperRect.IsEmpty) return;
+
+        var corners = Distance.Corners(PaperRect);
+        for (int i = 0; i < corners.Length; i++)
+            into.Add(CurvePiece.Segment(corners[i], corners[(i + 1) % corners.Length]));
+    }
 }

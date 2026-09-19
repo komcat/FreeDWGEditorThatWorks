@@ -120,4 +120,15 @@ public sealed class SEllipse : SceneEntity
             Sweep = -Sweep;
         }
     }
+
+    public override void CollectCurves(ICollection<CurvePiece> into, double tolerance)
+    {
+        if (MajorAxis.LengthSquared <= 0 || Math.Abs(Sweep) < 1e-12) return;
+
+        var points = Flatten(tolerance);
+        for (int i = 1; i < points.Length; i++) into.Add(CurvePiece.Segment(points[i - 1], points[i]));
+
+        if (IsClosed && points.Length > 2)
+            into.Add(CurvePiece.Segment(points[^1], points[0]));
+    }
 }
