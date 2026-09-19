@@ -1,12 +1,44 @@
-﻿<Window x:Class="FreeDWGEditorThatWorks.MainWindow"
+<Window x:Class="FreeDWGEditorThatWorks.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:FreeDWGEditorThatWorks"
+        xmlns:ctl="clr-namespace:FreeDWGEditorThatWorks.Controls"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="FreeDWG Editor" Height="700" Width="1100">
+    <DockPanel>
+        <ToolBarTray DockPanel.Dock="Top" IsLocked="True">
+            <ToolBar>
+                <Button Content="Open..." Padding="10,2" Click="OnOpenClick"
+                        ToolTip="Open a DWG or DXF drawing (Ctrl+O)" />
+                <Separator />
+                <Button Content="Zoom Extents" Padding="10,2" Click="OnZoomExtentsClick"
+                        ToolTip="Fit the whole drawing in the viewport" />
+                <Separator />
+                <CheckBox x:Name="LineweightsToggle" Content="Lineweights" VerticalAlignment="Center"
+                          Margin="4,0" Click="OnLineweightsToggled"
+                          ToolTip="Show plot widths instead of hairlines" />
+                <CheckBox x:Name="LightBackgroundToggle" Content="Light background" VerticalAlignment="Center"
+                          Margin="8,0" Click="OnBackgroundToggled" />
+            </ToolBar>
+        </ToolBarTray>
 
-    </Grid>
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="No drawing loaded." />
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock x:Name="CoordinateText" FontFamily="Consolas" Text="" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid>
+            <ctl:CadCanvas x:Name="Canvas" />
+            <TextBlock x:Name="EmptyHint"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="#7F8C99" FontSize="15" IsHitTestVisible="False"
+                       Text="Open a .dwg or .dxf to begin&#x0a;Scroll to zoom, drag to pan" 
+                       TextAlignment="Center" />
+        </Grid>
+    </DockPanel>
 </Window>
