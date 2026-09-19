@@ -834,6 +834,31 @@ public sealed class CadCanvas : FrameworkElement
         DrawingEdited?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Swaps one entity for an edited copy of itself, through the command
+    /// stack, and leaves the copy selected.
+    /// </summary>
+    /// <remarks>
+    /// How the properties panel writes back. Editing a copy rather than the
+    /// original is what makes the change undoable without every entity
+    /// needing a way to save and restore its own geometry, and
+    /// <c>EditPlan.Replace</c> carries the handle across so the file still
+    /// recognises the object afterwards.
+    /// </remarks>
+    public bool ApplyEdit(SceneEntity original, SceneEntity updated, string name)
+    {
+        if (_drawing is null || Commands is null) return false;
+
+        Commands.Do(new ReplaceEntities(_drawing.ActiveLayout,
+            EditPlan.Replace(original, updated), name));
+
+        Selection.Set([updated]);
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
     /// <summary>Deletes what is selected. Returns whether there was anything to delete.</summary>
     public bool EraseSelection()
     {

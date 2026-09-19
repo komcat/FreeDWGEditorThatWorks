@@ -275,8 +275,27 @@ command rather than a replacement. It keeps the circle on the side it
 started, because a circle that jumped across the line it was being mated to
 would be a surprise.
 
-The fillet radius box is the first numeric entry in the app, and is where
-real coordinate entry should grow from. The figure itself lives on the canvas
+**The properties panel** took over from the fillet radius box. The middle
+column is Properties over Layers now, a two-column grid grouped by category
+with a description pane under it -- the shape every CAD and every IDE puts
+this sort of thing in, so it needs no explaining.
+
+It holds the editor settings that used to be loose on the toolbar (fillet
+radius, ortho, grid, grid spacing) and, when one object is selected, its
+geometry: a line's ends with its length and angle derived, a circle's centre
+and radius, an arc's angles in degrees, and the layer by name. Derived
+figures are shown but read-only -- a length is a consequence of two ends, not
+a third thing to set.
+
+Edits go through the command stack like everything else. The panel edits a
+*copy* and swaps it in with `ReplaceEntities`, so nothing needed a way to
+overwrite an entity's geometry in place, the edit is undoable, and the
+replacement keeps the handle the file knows the object by. A value that will
+not parse puts the old text back rather than leaving the panel and the
+drawing disagreeing.
+
+This is also where real numeric entry should grow from: it is the only place
+in the app that takes a typed figure. The figure itself lives on the canvas
 as `CornerRadius`, not on the tool: it was copied into the tool at
 construction *and* pushed in again on change, which is two places to forget
 and exactly how a setting ends up silently doing nothing. The canvas applies

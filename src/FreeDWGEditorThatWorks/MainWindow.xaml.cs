@@ -1,10 +1,11 @@
 ﻿using System.Collections.ObjectModel;
+using System.Linq;
+using System.Windows.Data;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
 using FreeDwg.Core.Snapping;
@@ -24,6 +25,7 @@ public partial class MainWindow : Window
     private static readonly Rgb LightBackground = new(255, 255, 255);
 
     private readonly ObservableCollection<LayerItem> _layers = new();
+    private readonly ObservableCollection<PropertyRow> _properties = new();
 
     /// <summary>
     /// The tool buttons, so exactly one can be lit. The canvas owns which
@@ -52,6 +54,12 @@ public partial class MainWindow : Window
 
         LayerList.ItemsSource = _layers;
 
+        // Grouped in the view rather than the collection, so the rows stay a
+        // flat list that is simple to rebuild.
+        var grouped = new CollectionViewSource { Source = _properties };
+        grouped.GroupDescriptions.Add(new PropertyGroupDescription(nameof(PropertyRow.Category)));
+        PropertyGrid.ItemsSource = grouped.View;
+
         _toolButtons =
         [
             SelectButton, LineButton, PolylineButton, RectangleButton,
@@ -63,7 +71,11 @@ public partial class MainWindow : Window
         Canvas.CursorMoved += (_, world) =>
             CoordinateText.Text = $"X {world.X,12:0.###}   Y {world.Y,12:0.###}";
 
-        Canvas.SelectionChanged += (_, _) => UpdateStatus();
+        Canvas.SelectionChanged += (_, _) =>
+        {
+            UpdateStatus();
+            RebuildProperties();
+        };
 
         // The canvas owns what a left click does; every button that claims to
         // set a mode is only a view of that. Syncing them all from one event
@@ -72,6 +84,7 @@ public partial class MainWindow : Window
         {
             SyncModeButtons();
             UpdateStatus();
+            RebuildProperties();
         };
         Canvas.DrawingEdited += (_, _) =>
         {
@@ -80,6 +93,7 @@ public partial class MainWindow : Window
             UpdateTitle();
             UpdateStatus();
             UpdateEmptyHint();
+            RebuildProperties();
         };
 
         Canvas.Snapping.Modes = SnapModes.Objects;
@@ -91,6 +105,7 @@ public partial class MainWindow : Window
 
         _ready = true;
         NewDrawing();
+        RebuildProperties();
     }
 
     private void OnNewClick(object sender, RoutedEventArgs e) => NewDrawing();
@@ -187,17 +202,6 @@ public partial class MainWindow : Window
     {
         ZoomWindowToggle.IsChecked = Canvas.Mode == CanvasMode.ZoomWindow;
 
-        // Fillet and chamfer are the only tools the box applies to, so it
-        // points itself out exactly when it is about to be wanted.
-        bool wantsSize = Canvas.Tool is FilletTool;
-
-        RadiusLabel.Text = Canvas.Tool is ChamferTool ? "Distance" : "Radius";
-        RadiusGroup.BorderBrush = wantsSize
-            ? (Brush)FindResource("Tool.CheckedEdge")
-            : Brushes.Transparent;
-        RadiusGroup.Background = wantsSize
-            ? (Brush)FindResource("Tool.CheckedFill")
-            : Brushes.Transparent;
 
         RadioButton? active = Canvas.Mode switch
         {
@@ -232,22 +236,52 @@ public partial class MainWindow : Window
         _ => null,
     };
 
-    private void OnRadiusChanged(object sender, TextChangedEventArgs e)
+    /// <summary>
+    /// Rebuilds the properties panel. Wholesale, because what belongs in it
+    /// changes completely with the selection: a circle and a line share
+    /// almost no fields.
+    /// </summary>
+    private void RebuildProperties()
     {
-        // Text="0" in the markup raises this during InitializeComponent,
-        // when the canvas this goes on to touch has not been created yet.
         if (!_ready) return;
 
-        // Invariant rather than the current culture: a drawing typed on a
-        // machine that writes 7,5 and one that writes 7.5 have to mean the
-        // same thing, and a decimal point is what a CAD user types.
-        if (!double.TryParse(RadiusBox.Text, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out double value) || value < 0)
+        // Keep the cursor on the same field across a rebuild, so editing one
+        // value does not throw the reader back to the top of the list.
+        string? wasOn = (PropertyGrid.SelectedItem as PropertyRow)?.Name;
+
+        _properties.Clear();
+        foreach (var row in PropertySource.Build(Canvas)) _properties.Add(row);
+
+        PropertyScopeText.Text = Canvas.Selection.Count switch
         {
+            0 => "nothing selected",
+            1 => Canvas.Selection.Ordered[0].GetType().Name.TrimStart('S').ToLowerInvariant(),
+            var many => $"{many} objects",
+        };
+
+        if (wasOn is not null)
+            PropertyGrid.SelectedItem = _properties.FirstOrDefault(row => row.Name == wasOn);
+
+        ShowPropertyHelp();
+    }
+
+    private void OnPropertyRowSelected(object sender, SelectionChangedEventArgs e) => ShowPropertyHelp();
+
+    /// <summary>
+    /// The help pane under the grid, as a property grid has. It is where a
+    /// field gets to explain itself without a tooltip nobody hovers over.
+    /// </summary>
+    private void ShowPropertyHelp()
+    {
+        if (PropertyGrid.SelectedItem is not PropertyRow row)
+        {
+            PropertyHelpName.Text = "";
+            PropertyHelpText.Text = "Select a row to see what it does.";
             return;
         }
 
-        Canvas.CornerRadius = value;
+        PropertyHelpName.Text = row.Name;
+        PropertyHelpText.Text = row.Description;
     }
 
     /// <summary>
