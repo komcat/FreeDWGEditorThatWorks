@@ -89,9 +89,16 @@ public class FilletTool : EntityTool
         ? Opening
         : "Fillet: click the second line, on the side to keep";
 
-    protected virtual string Opening => Radius > 0
-        ? $"Fillet (radius {Radius:0.###}): click the first line, on the side to keep"
-        : "Fillet (radius 0, a sharp corner): click the first line, on the side to keep";
+    protected virtual string Opening => Describe("Fillet", "radius");
+
+    /// <summary>
+    /// Says what the size is and where to change it. A prompt that reports a
+    /// radius of zero without saying how to make it anything else is a dead
+    /// end, and this is the only place the user is looking at the time.
+    /// </summary>
+    protected string Describe(string verb, string measure) => Radius > 0
+        ? $"{verb} ({measure} {Radius:0.###}, change it in the Radius box): click the first line, on the side to keep"
+        : $"{verb} ({measure} 0, a sharp corner - set the Radius box for a rounded one): click the first line, on the side to keep";
 
     public override EditPlan Click(in EntityPick pick)
     {
@@ -122,9 +129,7 @@ public sealed class ChamferTool : FilletTool
 {
     public override string Name => "chamfer";
 
-    protected override string Opening => Radius > 0
-        ? $"Chamfer (distance {Radius:0.###}): click the first line, on the side to keep"
-        : "Chamfer (distance 0, a sharp corner): click the first line, on the side to keep";
+    protected override string Opening => Describe("Chamfer", "distance");
 
     protected override EditPlan Build(SLine first, Vec2 firstPick, SLine second, Vec2 secondPick) =>
         Corners.Chamfer(first, firstPick, second, secondPick, Radius);

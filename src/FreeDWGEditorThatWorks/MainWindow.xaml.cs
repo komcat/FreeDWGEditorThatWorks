@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
 using FreeDwg.Core.Snapping;
@@ -185,6 +186,18 @@ public partial class MainWindow : Window
     private void SyncModeButtons()
     {
         ZoomWindowToggle.IsChecked = Canvas.Mode == CanvasMode.ZoomWindow;
+
+        // Fillet and chamfer are the only tools the box applies to, so it
+        // points itself out exactly when it is about to be wanted.
+        bool wantsSize = Canvas.Tool is FilletTool;
+
+        RadiusLabel.Text = Canvas.Tool is ChamferTool ? "Distance" : "Radius";
+        RadiusGroup.BorderBrush = wantsSize
+            ? (Brush)FindResource("Tool.CheckedEdge")
+            : Brushes.Transparent;
+        RadiusGroup.Background = wantsSize
+            ? (Brush)FindResource("Tool.CheckedFill")
+            : Brushes.Transparent;
 
         RadioButton? active = Canvas.Mode switch
         {

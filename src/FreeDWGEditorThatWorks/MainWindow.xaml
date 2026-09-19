@@ -76,18 +76,27 @@
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 
-                <!--
+<!--
                     Fillet radius and chamfer distance share this box: both
                     ask the same question, and zero means a sharp corner in
                     either. It is also the first numeric entry in the app,
                     and where real coordinate entry should grow from.
+
+                    Labelled in words and highlighted while a corner tool is
+                    running, because a 52-pixel box marked "R" at the far end
+                    of a toolbar is not something anyone finds by looking.
                 -->
-                <TextBlock Text="R" VerticalAlignment="Center" Margin="2,0,4,0"
-                           Foreground="{StaticResource Tool.GroupLabel}" />
-                <TextBox x:Name="RadiusBox" Text="0" Width="52" VerticalAlignment="Center"
-                         VerticalContentAlignment="Center" TextAlignment="Right"
-                         TextChanged="OnRadiusChanged"
-                         ToolTip="Fillet radius and chamfer distance. Zero brings the lines to a sharp corner" />
+                <Border x:Name="RadiusGroup" BorderThickness="1" CornerRadius="4" Padding="5,1"
+                        BorderBrush="Transparent" Background="Transparent">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="RadiusLabel" Text="Radius" VerticalAlignment="Center"
+                                   Margin="0,0,5,0" Foreground="{StaticResource Tool.GroupLabel}" />
+                        <TextBox x:Name="RadiusBox" Text="0" Width="56" VerticalAlignment="Center"
+                                 VerticalContentAlignment="Center" TextAlignment="Right"
+                                 TextChanged="OnRadiusChanged"
+                                 ToolTip="Fillet radius and chamfer distance. Zero brings the lines to a sharp corner" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </Border>
 
