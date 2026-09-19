@@ -47,6 +47,29 @@ public static class ArcMath
     }
 
     /// <summary>
+    /// Approximates an arc with a polyline fine enough that the deviation stays
+    /// under <paramref name="toleranceDevice"/> pixels. Needed when a block's
+    /// transform is not a similarity: a circle scaled non-uniformly is an
+    /// ellipse, which no circular-arc primitive can express.
+    /// </summary>
+    public static Vec2[] Tessellate(Vec2 center, double radius, double startAngle, double sweep,
+        double deviceRadius, double toleranceDevice = 0.25)
+    {
+        // Sagitta of a chord subtending angle t is r * (1 - cos(t/2)); invert
+        // that for the largest step that stays within tolerance.
+        double maxStep = deviceRadius > toleranceDevice
+            ? 2.0 * Math.Acos(Math.Clamp(1.0 - toleranceDevice / deviceRadius, -1.0, 1.0))
+            : Math.PI / 2;
+
+        int segments = Math.Clamp((int)Math.Ceiling(Math.Abs(sweep) / Math.Max(maxStep, 1e-6)), 2, 4096);
+
+        var points = new Vec2[segments + 1];
+        for (int i = 0; i <= segments; i++)
+            points[i] = PointAt(center, radius, startAngle + sweep * i / segments);
+        return points;
+    }
+
+    /// <summary>
     /// Converts a DWG bulge-encoded polyline segment into arc geometry.
     /// Bulge is tan(sweep / 4): positive is counter-clockwise, 1.0 is a
     /// semicircle, 0.0 is a straight segment.

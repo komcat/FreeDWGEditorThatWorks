@@ -57,6 +57,39 @@ public readonly struct Mat3
         v.X * M11 + v.Y * M21,
         v.X * M12 + v.Y * M22);
 
+    /// <summary>
+    /// True when the transform is a uniform scale, rotation and/or mirror --
+    /// the cases under which a circle stays a circle and an arc stays an arc.
+    /// </summary>
+    public bool IsSimilarity
+    {
+        get
+        {
+            double rowDot = M11 * M21 + M12 * M22;
+            double len1 = M11 * M11 + M12 * M12;
+            double len2 = M21 * M21 + M22 * M22;
+            double scale = Math.Max(len1, len2);
+            if (scale <= 0) return false;
+            return Math.Abs(rowDot) <= 1e-9 * scale && Math.Abs(len1 - len2) <= 1e-9 * scale;
+        }
+    }
+
+    /// <summary>Uniform scale factor, meaningful when <see cref="IsSimilarity"/>.</summary>
+    public double UniformScale => Math.Sqrt(Math.Abs(Determinant));
+
+    /// <summary>Axis-aligned bounds of the transformed rectangle.</summary>
+    public Bounds2 TransformBounds(Bounds2 bounds)
+    {
+        if (bounds.IsEmpty) return bounds;
+
+        // Rotation means the transformed corners, not the transformed extremes.
+        return Bounds2.Empty
+            .Union(Transform(new Vec2(bounds.MinX, bounds.MinY)))
+            .Union(Transform(new Vec2(bounds.MaxX, bounds.MinY)))
+            .Union(Transform(new Vec2(bounds.MaxX, bounds.MaxY)))
+            .Union(Transform(new Vec2(bounds.MinX, bounds.MaxY)));
+    }
+
     public bool TryInvert(out Mat3 inverse)
     {
         double det = Determinant;

@@ -13,10 +13,10 @@ public sealed class SLine : SceneEntity
 
     protected override Bounds2 ComputeBounds() => Bounds2.FromCorners(Start, End);
 
-    public override void Emit(IDrawingSink sink, in DisplayStyle style)
+    public override void Emit(in EmitContext context, in DisplayStyle style)
     {
-        sink.BeginFigure(Start, closed: false, style);
-        sink.LineTo(End);
-        sink.EndFigure();
+        context.Sink.BeginFigure(Start, closed: false, style);
+        context.Sink.LineTo(End);
+        context.Sink.EndFigure();
     }
 }

@@ -53,9 +53,11 @@ public sealed class SPolyline : SceneEntity
         return b;
     }
 
-    public override void Emit(IDrawingSink sink, in DisplayStyle style)
+    public override void Emit(in EmitContext context, in DisplayStyle style)
     {
         if (Vertices.Length < 2) return;
+
+        var sink = context.Sink;
 
         sink.BeginFigure(Vertices[0].Point, Closed, style);
 

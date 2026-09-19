@@ -88,7 +88,7 @@ public sealed class CadCanvas : FrameworkElement
 
         SyncViewport();
         var sink = new WpfDrawingSink(dc, Camera, Settings);
-        LastStats = SceneRenderer.Render(_drawing, Camera, sink, Settings);
+        LastStats = SceneRenderer.Render(_drawing, Camera, sink);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)

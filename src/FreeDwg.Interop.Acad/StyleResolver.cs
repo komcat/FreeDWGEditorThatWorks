@@ -17,11 +17,24 @@ internal static class StyleResolver
     /// <summary>AutoCAD colour index 7: white on dark, black on light. The renderer flips it.</summary>
     private static readonly Rgb Default = Rgb.White;
 
-    public static DisplayStyle Resolve(Entity entity, SceneLayer? layer)
+    /// <summary>
+    /// Resolves an entity's style, reporting which parts are ByBlock and so
+    /// must be supplied by the block reference at draw time instead.
+    /// </summary>
+    public static (DisplayStyle Style, StyleInheritance Inherits) Resolve(Entity entity, SceneLayer? layer)
     {
-        return new DisplayStyle(
+        // Check the raw values first: GetActiveColor() resolves ByBlock away,
+        // but for an entity inside a block definition that decision belongs to
+        // whichever reference is drawing it, not to us.
+        var inherits = StyleInheritance.None;
+        if (entity.Color.IsByBlock) inherits |= StyleInheritance.Color;
+        if (entity.LineWeight == LineWeightType.ByBlock) inherits |= StyleInheritance.Lineweight;
+
+        var style = new DisplayStyle(
             ResolveColor(entity.GetActiveColor(), layer),
             ResolveLineweight(entity.GetActiveLineWeightType(), layer));
+
+        return (style, inherits);
     }
 
     public static Rgb ToRgb(Color color, Rgb fallback)

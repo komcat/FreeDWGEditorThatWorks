@@ -26,8 +26,9 @@ public sealed class SArc : SceneEntity
     protected override Bounds2 ComputeBounds() =>
         ArcMath.Bounds(Center, Radius, StartAngle, Sweep);
 
-    public override void Emit(IDrawingSink sink, in DisplayStyle style)
+    public override void Emit(in EmitContext context, in DisplayStyle style)
     {
+        var sink = context.Sink;
         double sweep = Math.Abs(Sweep);
 
         // A full (or near-full) sweep has coincident endpoints, which no single

@@ -1,11 +1,11 @@
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
+using ACadSharp.Tables;
 using CSMath;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Scene.Entities;
-using FreeDwg.Core.Styling;
 using AcadArc = ACadSharp.Entities.Arc;
 using AcadCircle = ACadSharp.Entities.Circle;
 using AcadLine = ACadSharp.Entities.Line;
@@ -35,90 +35,208 @@ public static class DwgLoader
         return drawing;
     }
 
+    /// <summary>Converts an already-open document. Model space only, for now.</summary>
+    public static Drawing Convert(CadDocument document, ImportDiagnostics diagnostics) =>
+        new Converter(document, diagnostics).Run();
+
     private static bool IsDxf(string path) =>
         string.Equals(Path.GetExtension(path), ".dxf", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Converts an already-open document. Model space only, for now.</summary>
-    public static Drawing Convert(CadDocument document, ImportDiagnostics diagnostics)
+    private sealed class Converter
     {
-        var drawing = new Drawing();
+        /// <summary>A MINSERT grid this large is almost certainly corrupt data.</summary>
+        private const int MaxArrayInstances = 10_000;
 
-        var layerIndexByHandle = new Dictionary<ulong, int>();
-        int fallbackLayer = -1;
+        private readonly CadDocument _document;
+        private readonly ImportDiagnostics _diagnostics;
+        private readonly Drawing _drawing = new();
+        private readonly Dictionary<ulong, int> _layerIndexByHandle = new();
+        private readonly Dictionary<ulong, BlockDefinition> _blockByHandle = new();
+        private int _fallbackLayer;
 
-        foreach (var acadLayer in document.Layers)
+        public Converter(CadDocument document, ImportDiagnostics diagnostics)
         {
-            var layer = StyleResolver.ToSceneLayer(acadLayer);
-            int index = drawing.AddLayer(layer);
-            layerIndexByHandle[acadLayer.Handle] = index;
-
-            // Layer "0" always exists in a well-formed drawing and is the
-            // natural home for entities whose own layer we cannot resolve.
-            if (fallbackLayer < 0 && layer.Name == "0") fallbackLayer = index;
+            _document = document;
+            _diagnostics = diagnostics;
         }
 
-        if (fallbackLayer < 0) fallbackLayer = drawing.AddLayer(new SceneLayer("0"));
-
-        foreach (var entity in document.Entities)
+        public Drawing Run()
         {
-            if (entity.IsInvisible) continue;
+            ConvertLayers();
+            ConvertBlocks();
 
-            int layerIndex = entity.Layer is not null &&
-                             layerIndexByHandle.TryGetValue(entity.Layer.Handle, out int index)
-                ? index
-                : fallbackLayer;
+            foreach (var entity in _document.Entities)
+                AddConverted(entity, _drawing.Entities);
+
+            _diagnostics.ImportedCount = _drawing.Entities.Count;
+            return _drawing;
+        }
+
+        private void ConvertLayers()
+        {
+            _fallbackLayer = -1;
+
+            foreach (var acadLayer in _document.Layers)
+            {
+                int index = _drawing.AddLayer(StyleResolver.ToSceneLayer(acadLayer));
+                _layerIndexByHandle[acadLayer.Handle] = index;
+
+                // Layer "0" always exists in a well-formed drawing and is the
+                // natural home for entities whose own layer we cannot resolve.
+                if (_fallbackLayer < 0 && acadLayer.Name == "0") _fallbackLayer = index;
+            }
+
+            if (_fallbackLayer < 0) _fallbackLayer = _drawing.AddLayer(new SceneLayer("0"));
+        }
+
+        /// <summary>
+        /// Two passes: create every block definition first, then fill them.
+        /// A block can reference another block that appears later in the table,
+        /// so the references have to exist before any of them are populated.
+        /// </summary>
+        private void ConvertBlocks()
+        {
+            var records = new List<BlockRecord>();
+
+            foreach (var record in _document.BlockRecords)
+            {
+                // Model and paper space are block records too, but their
+                // contents are the drawing itself, not reusable definitions.
+                if (ReferenceEquals(record, _document.ModelSpace)) continue;
+                if (record.Layout is not null) continue;
+
+                var block = new BlockDefinition(record.Name)
+                {
+                    BasePoint = ToVec2(record.BlockEntity?.BasePoint ?? XYZ.Zero),
+                    SourceHandle = record.Handle,
+                    IsAnonymous = record.IsAnonymous,
+                };
+
+                _blockByHandle[record.Handle] = _drawing.AddBlock(block);
+                records.Add(record);
+            }
+
+            foreach (var record in records)
+            {
+                var block = _blockByHandle[record.Handle];
+                foreach (var entity in record.Entities)
+                    AddConverted(entity, block.Entities);
+            }
+        }
+
+        private void AddConverted(Entity entity, List<SceneEntity> target)
+        {
+            if (entity.IsInvisible) return;
+
+            // An INSERT may expand into a grid of instances (MINSERT).
+            if (entity is Insert insert)
+            {
+                AddInserts(insert, target);
+                return;
+            }
 
             var converted = ConvertEntity(entity);
             if (converted is null)
             {
-                diagnostics.Unsupported(entity);
-                continue;
+                _diagnostics.Unsupported(entity);
+                return;
             }
 
-            converted.LayerIndex = layerIndex;
-            converted.Style = StyleResolver.Resolve(entity, drawing.Layers[layerIndex]);
-            converted.SourceHandle = entity.Handle;
-            drawing.Add(converted);
+            Decorate(converted, entity);
+            target.Add(converted);
         }
 
-        diagnostics.ImportedCount = drawing.Entities.Count;
-        return drawing;
-    }
-
-    private static SceneEntity? ConvertEntity(Entity entity) => entity switch
-    {
-        // Arc derives from Circle in ACadSharp, so it has to be matched first.
-        AcadArc arc => ConvertArc(arc),
-        AcadCircle circle => new SCircle(ToVec2(circle.Center), circle.Radius),
-        AcadLine line => new SLine(ToVec2(line.StartPoint), ToVec2(line.EndPoint)),
-        LwPolyline polyline => ConvertLwPolyline(polyline),
-        _ => null,
-    };
-
-    private static SArc ConvertArc(AcadArc arc)
-    {
-        // DWG stores start and end angles counter-clockwise; the arc is always
-        // drawn CCW from start to end, so a wrapped end angle is normal.
-        double sweep = ArcMath.Normalize(arc.EndAngle - arc.StartAngle);
-        if (sweep < 1e-12) sweep = ArcMath.TwoPi;
-
-        return new SArc(ToVec2(arc.Center), arc.Radius, arc.StartAngle, sweep);
-    }
-
-    private static SPolyline ConvertLwPolyline(LwPolyline polyline)
-    {
-        var vertices = new PolyVertex[polyline.Vertices.Count];
-        for (int i = 0; i < vertices.Length; i++)
+        private void AddInserts(Insert insert, List<SceneEntity> target)
         {
-            var v = polyline.Vertices[i];
-            vertices[i] = new PolyVertex(new Vec2(v.Location.X, v.Location.Y), v.Bulge);
-        }
-        return new SPolyline(vertices, polyline.IsClosed);
-    }
+            if (insert.Block is null || !_blockByHandle.TryGetValue(insert.Block.Handle, out var block))
+            {
+                _diagnostics.Unsupported(insert);
+                return;
+            }
 
-    /// <summary>
-    /// Projects to the XY plane. A 2D editor has no use for Z, and model-space
-    /// drafting keeps everything at elevation zero anyway.
-    /// </summary>
-    private static Vec2 ToVec2(XYZ p) => new(p.X, p.Y);
+            int columns = Math.Max(1, (int)insert.ColumnCount);
+            int rows = Math.Max(1, (int)insert.RowCount);
+
+            if ((long)columns * rows > MaxArrayInstances)
+            {
+                _diagnostics.Note($"INSERT {insert.Handle:X}: {columns}x{rows} array exceeds {MaxArrayInstances} instances; drawing one.");
+                columns = 1;
+                rows = 1;
+            }
+
+            var origin = ToVec2(insert.InsertPoint);
+            double rotation = insert.Rotation;
+
+            for (int row = 0; row < rows; row++)
+            {
+                for (int column = 0; column < columns; column++)
+                {
+                    // Array spacing runs along the block's own axes, so the
+                    // offset rotates with the insert.
+                    var offset = Mat3.Rotation(rotation).TransformVector(
+                        new Vec2(column * insert.ColumnSpacing, row * insert.RowSpacing));
+
+                    var transform = SInsert.BuildTransform(
+                        block.BasePoint, origin + offset, insert.XScale, insert.YScale, rotation);
+
+                    var scene = new SInsert(block, transform);
+                    Decorate(scene, insert);
+                    target.Add(scene);
+                }
+            }
+        }
+
+        private void Decorate(SceneEntity scene, Entity source)
+        {
+            int layerIndex = source.Layer is not null &&
+                             _layerIndexByHandle.TryGetValue(source.Layer.Handle, out int index)
+                ? index
+                : _fallbackLayer;
+
+            var (style, inherits) = StyleResolver.Resolve(source, _drawing.Layers[layerIndex]);
+
+            scene.LayerIndex = layerIndex;
+            scene.Style = style;
+            scene.Inherits = inherits;
+            scene.SourceHandle = source.Handle;
+        }
+
+        private static SceneEntity? ConvertEntity(Entity entity) => entity switch
+        {
+            // Arc derives from Circle in ACadSharp, so it has to be matched first.
+            AcadArc arc => ConvertArc(arc),
+            AcadCircle circle => new SCircle(ToVec2(circle.Center), circle.Radius),
+            AcadLine line => new SLine(ToVec2(line.StartPoint), ToVec2(line.EndPoint)),
+            LwPolyline polyline => ConvertLwPolyline(polyline),
+            _ => null,
+        };
+
+        private static SArc ConvertArc(AcadArc arc)
+        {
+            // DWG stores start and end angles counter-clockwise; the arc is
+            // always drawn CCW from start to end, so a wrapped end angle is
+            // normal rather than an error.
+            double sweep = ArcMath.Normalize(arc.EndAngle - arc.StartAngle);
+            if (sweep < 1e-12) sweep = ArcMath.TwoPi;
+
+            return new SArc(ToVec2(arc.Center), arc.Radius, arc.StartAngle, sweep);
+        }
+
+        private static SPolyline ConvertLwPolyline(LwPolyline polyline)
+        {
+            var vertices = new PolyVertex[polyline.Vertices.Count];
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                var v = polyline.Vertices[i];
+                vertices[i] = new PolyVertex(new Vec2(v.Location.X, v.Location.Y), v.Bulge);
+            }
+            return new SPolyline(vertices, polyline.IsClosed);
+        }
+
+        /// <summary>
+        /// Projects to the XY plane. A 2D editor has no use for Z, and
+        /// model-space drafting keeps everything at elevation zero anyway.
+        /// </summary>
+        private static Vec2 ToVec2(XYZ p) => new(p.X, p.Y);
+    }
 }

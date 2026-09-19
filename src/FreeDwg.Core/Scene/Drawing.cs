@@ -11,6 +11,9 @@ public sealed class Drawing
     public List<Layer> Layers { get; } = new();
     public List<SceneEntity> Entities { get; } = new();
 
+    /// <summary>Block definitions, referenced by <see cref="Entities.SInsert"/>.</summary>
+    public List<BlockDefinition> Blocks { get; } = new();
+
     /// <summary>Path this was imported from, if any.</summary>
     public string? SourcePath { get; set; }
 
@@ -32,6 +35,12 @@ public sealed class Drawing
     }
 
     public void InvalidateBounds() => _bounds = null;
+
+    public BlockDefinition AddBlock(BlockDefinition block)
+    {
+        Blocks.Add(block);
+        return block;
+    }
 
     /// <summary>Adds a layer and returns its index.</summary>
     public int AddLayer(Layer layer)

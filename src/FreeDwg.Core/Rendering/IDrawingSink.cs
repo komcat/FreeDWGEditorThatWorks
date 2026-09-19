@@ -32,4 +32,14 @@ public interface IDrawingSink
 
     /// <summary>A full circle, which cannot be expressed as a single arc segment.</summary>
     void Circle(Vec2 center, double radius, in DisplayStyle style);
+
+    /// <summary>
+    /// Pushes a block-instance transform. Coordinates passed to the sink are
+    /// from then on in that block's local space, and the sink composes the
+    /// stack. Block definitions are stored once and instanced by transform, so
+    /// a drawing with ten thousand copies of a symbol holds one copy of it.
+    /// </summary>
+    void PushTransform(in Mat3 transform);
+
+    void PopTransform();
 }

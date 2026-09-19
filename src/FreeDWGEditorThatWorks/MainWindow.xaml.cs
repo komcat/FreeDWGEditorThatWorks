@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -5,6 +6,7 @@ using System.Windows.Input;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
 using FreeDwg.Interop.Acad;
+using FreeDWGEditorThatWorks.ViewModels;
 using Microsoft.Win32;
 using SceneDrawing = FreeDwg.Core.Scene.Drawing;
 
@@ -15,16 +17,19 @@ public partial class MainWindow : Window
     private static readonly Rgb DarkBackground = new(33, 40, 48);
     private static readonly Rgb LightBackground = new(255, 255, 255);
 
+    private readonly ObservableCollection<LayerItem> _layers = new();
     private ImportDiagnostics? _diagnostics;
 
     public MainWindow()
     {
         InitializeComponent();
 
+        LayerList.ItemsSource = _layers;
+
         Canvas.CursorMoved += (_, world) =>
             CoordinateText.Text = $"X {world.X,12:0.###}   Y {world.Y,12:0.###}";
 
-        InputBindings.Add(new KeyBinding(new RoutedCommandStub(OpenAsync), Key.O, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
     }
 
     private async void OnOpenClick(object sender, RoutedEventArgs e) => await OpenAsync();
@@ -53,6 +58,8 @@ public partial class MainWindow : Window
             Canvas.Drawing = drawing;
             EmptyHint.Visibility = Visibility.Collapsed;
             Title = $"FreeDWG Editor - {Path.GetFileName(path)}";
+
+            PopulateLayers(drawing);
             UpdateStatus();
         }
         catch (Exception ex)
@@ -65,6 +72,26 @@ public partial class MainWindow : Window
         {
             Cursor = Cursors.Arrow;
         }
+    }
+
+    private void PopulateLayers(SceneDrawing drawing)
+    {
+        var counts = new int[drawing.Layers.Count];
+        foreach (var entity in drawing.Entities)
+            if ((uint)entity.LayerIndex < (uint)counts.Length)
+                counts[entity.LayerIndex]++;
+
+        _layers.Clear();
+        for (int i = 0; i < drawing.Layers.Count; i++)
+            _layers.Add(new LayerItem(drawing.Layers[i], counts[i], OnLayerVisibilityChanged));
+
+        LayerCountText.Text = _layers.Count.ToString();
+    }
+
+    private void OnLayerVisibilityChanged()
+    {
+        Canvas.Redraw();
+        UpdateStatus();
     }
 
     private void OnZoomExtentsClick(object sender, RoutedEventArgs e) => Canvas.ZoomExtents();
@@ -87,19 +114,23 @@ public partial class MainWindow : Window
     {
         if (_diagnostics is null) return;
 
-        Bounds2 bounds = Canvas.Drawing?.Bounds ?? Bounds2.Empty;
-        string extents = bounds.IsEmpty
-            ? "empty"
-            : $"{bounds.Width:0.##} x {bounds.Height:0.##}";
+        var drawing = Canvas.Drawing;
+        Bounds2 bounds = drawing?.Bounds ?? Bounds2.Empty;
 
-        StatusText.Text = $"{_diagnostics.Summary()}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn";
+        string extents = bounds.IsEmpty ? "empty" : $"{bounds.Width:0.##} x {bounds.Height:0.##}";
+        string blocks = drawing is null || drawing.Blocks.Count == 0
+            ? ""
+            : $"   |   {drawing.Blocks.Count} blocks";
+
+        StatusText.Text =
+            $"{_diagnostics.Summary()}{blocks}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn";
     }
 
     /// <summary>Minimal ICommand shim so a keyboard shortcut can invoke an async method.</summary>
-    private sealed class RoutedCommandStub : ICommand
+    private sealed class RelayCommand : ICommand
     {
         private readonly Func<Task> _execute;
-        public RoutedCommandStub(Func<Task> execute) => _execute = execute;
+        public RelayCommand(Func<Task> execute) => _execute = execute;
 
         public event EventHandler? CanExecuteChanged { add { } remove { } }
         public bool CanExecute(object? parameter) => true;

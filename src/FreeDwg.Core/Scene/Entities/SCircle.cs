@@ -19,6 +19,6 @@ public sealed class SCircle : SceneEntity
         new Vec2(Center.X - Radius, Center.Y - Radius),
         new Vec2(Center.X + Radius, Center.Y + Radius));
 
-    public override void Emit(IDrawingSink sink, in DisplayStyle style) =>
-        sink.Circle(Center, Radius, style);
+    public override void Emit(in EmitContext context, in DisplayStyle style) =>
+        context.Sink.Circle(Center, Radius, style);
 }

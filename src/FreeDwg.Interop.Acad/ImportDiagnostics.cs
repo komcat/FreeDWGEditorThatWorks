@@ -36,6 +36,12 @@ public sealed class ImportDiagnostics
             _messages.Add($"[{e.NotificationType}] {e.Message}");
     }
 
+    /// <summary>Records something the importer had to work around.</summary>
+    internal void Note(string message)
+    {
+        if (_messages.Count < 500) _messages.Add($"[Import] {message}");
+    }
+
     internal void Unsupported(Entity entity)
     {
         string name = entity.ObjectName ?? entity.GetType().Name;
