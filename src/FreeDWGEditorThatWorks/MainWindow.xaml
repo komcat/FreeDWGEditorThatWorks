@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ctl="clr-namespace:FreeDWGEditorThatWorks.Controls"
+        xmlns:vm="clr-namespace:FreeDWGEditorThatWorks.ViewModels"
         mc:Ignorable="d"
         Title="FreeDWG Editor" Height="700" Width="1100">
     <DockPanel>
@@ -222,20 +223,53 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Property" Binding="{Binding Name}"
                                                 IsReadOnly="True" Width="1.1*" />
-                            <DataGridTextColumn Header="Value" Width="*"
-                                                Binding="{Binding Value, UpdateSourceTrigger=LostFocus}">
-                                <DataGridTextColumn.ElementStyle>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Margin" Value="4,0" />
-                                        <Setter Property="VerticalAlignment" Value="Center" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
-                                                <Setter Property="Opacity" Value="0.55" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </DataGridTextColumn.ElementStyle>
-                            </DataGridTextColumn>
+                            <DataGridTemplateColumn Header="Value" Width="*"
+                                                    CellTemplateSelector="{x:Null}">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="4,0">
+                                            <!-- A colour chip, for the rows that carry one. -->
+                                            <Border Width="11" Height="11" Margin="0,0,5,0"
+                                                    BorderBrush="#66000000" BorderThickness="1"
+                                                    VerticalAlignment="Center"
+                                                    Background="{Binding Swatch}"
+                                                    Visibility="{Binding HasSwatch,
+                                                        Converter={StaticResource ShowIfTrue}}" />
+                                            <TextBlock Text="{Binding Value}" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                                                                <Setter Property="Opacity" Value="0.55" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+
+                                <DataGridTemplateColumn.CellEditingTemplateSelector>
+                                    <vm:PropertyEditorSelector>
+                                        <vm:PropertyEditorSelector.Text>
+                                            <DataTemplate>
+                                                <TextBox Text="{Binding Value, UpdateSourceTrigger=LostFocus}"
+                                                         BorderThickness="0" Padding="3,0"
+                                                         VerticalContentAlignment="Center" />
+                                            </DataTemplate>
+                                        </vm:PropertyEditorSelector.Text>
+                                        <vm:PropertyEditorSelector.Choice>
+                                            <DataTemplate>
+                                                <ComboBox ItemsSource="{Binding Choices}"
+                                                          SelectedItem="{Binding Value}"
+                                                          IsEditable="False" BorderThickness="0"
+                                                          VerticalContentAlignment="Center" />
+                                            </DataTemplate>
+                                        </vm:PropertyEditorSelector.Choice>
+                                    </vm:PropertyEditorSelector>
+                                </DataGridTemplateColumn.CellEditingTemplateSelector>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
 
                         <DataGrid.GroupStyle>

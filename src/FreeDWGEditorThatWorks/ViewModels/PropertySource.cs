@@ -1,9 +1,10 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Scene.Entities;
 using FreeDwg.Core.Snapping;
+using FreeDwg.Core.Styling;
 using FreeDwg.Core.Tools;
 using FreeDWGEditorThatWorks.Controls;
 
@@ -108,9 +109,35 @@ public static class PropertySource
         rows.Add(new PropertyRow(General, "Type", "What kind of object this is.", Describe(entity)));
 
         rows.Add(new PropertyRow(General, "Layer",
-            "The layer this object is on. Type the name of another layer to move it.",
+            "The layer this object is on. Pick another to move it there.",
             LayerName(drawing, entity.LayerIndex),
-            text => MoveToLayer(canvas, drawing, entity, text)));
+            text => MoveToLayer(canvas, drawing, entity, text),
+            choices: drawing.Layers.Select(layer => layer.Name).ToList()));
+
+        rows.Add(new PropertyRow(General, "Colour",
+            "The colour this object draws in. \"By layer\" copies the layer's colour now rather "
+            + "than following it later: ByLayer is resolved when a file is read, so the scene "
+            + "holds a colour and not a link.",
+            StyleChoices.ColourName(entity.Style.Color),
+            text => SetColour(canvas, drawing, entity, text),
+            choices: StyleChoices.Colours(entity.Style.Color),
+            swatch: PropertyRow.Chip(entity.Style.Color)));
+
+        rows.Add(new PropertyRow(General, "Lineweight",
+            "Plot width in millimetres. It only shows on screen while the Lineweights button is on; "
+            + "otherwise everything strokes as a hairline, as AutoCAD does by default.",
+            StyleChoices.WeightName(entity.Style.Lineweight),
+            text =>
+            {
+                if (!StyleChoices.TryWeight(text, out var weight)) return false;
+
+                return Edit(canvas, entity, copy =>
+                {
+                    copy.Style = copy.Style with { Lineweight = weight };
+                    return true;
+                });
+            },
+            choices: StyleChoices.Weights(entity.Style.Lineweight)));
 
         AddGeometry(canvas, entity, rows);
     }
@@ -254,6 +281,32 @@ public static class PropertySource
 
         copy.InvalidateBounds();
         return canvas.ApplyEdit(original, copy, $"Edit {Describe(original).ToLowerInvariant()}");
+    }
+
+    /// <summary>
+    /// Sets an explicit colour, or copies the layer's. The copy is what
+    /// "by layer" can mean here: styles are resolved at import, so there is
+    /// nowhere to record that the colour should keep following the layer.
+    /// </summary>
+    private static bool SetColour(CadCanvas canvas, Drawing drawing, SceneEntity entity, string text)
+    {
+        Rgb colour;
+
+        if (string.Equals(text.Trim(), StyleChoices.ByLayer, StringComparison.OrdinalIgnoreCase))
+        {
+            if ((uint)entity.LayerIndex >= (uint)drawing.Layers.Count) return false;
+            colour = drawing.Layers[entity.LayerIndex].Color;
+        }
+        else if (!StyleChoices.TryColour(text, out colour))
+        {
+            return false;
+        }
+
+        return Edit(canvas, entity, copy =>
+        {
+            copy.Style = copy.Style with { Color = colour };
+            return true;
+        });
     }
 
     private static bool MoveToLayer(CadCanvas canvas, Drawing drawing, SceneEntity entity, string name)

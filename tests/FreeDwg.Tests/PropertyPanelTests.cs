@@ -1,4 +1,6 @@
-using System.Windows;
+﻿using System.Windows;
+using System.Windows.Media;
+using FreeDwg.Core.Styling;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene.Entities;
 using FreeDwg.Core.Snapping;
@@ -247,6 +249,183 @@ public sealed class PropertyPanelTests
         });
 
         Assert.Equal(20, radius, 9);
+    }
+
+    // ---- colour, lineweight and the layer list ---------------------------
+
+    [Fact]
+    public void TheFieldsWithAFixedSetOfAnswersOfferThem()
+    {
+        var rows = OnCanvas((canvas, drawing) =>
+        {
+            drawing.AddLayer(new FreeDwg.Core.Scene.Layer("WALLS"));
+            DrawAndSelect(canvas, drawing);
+            return PropertySource.Build(canvas);
+        });
+
+        // A field with a fixed set of answers should not have to be spelled
+        // from memory; misspelling one is how an edit gets quietly refused.
+        Assert.Equal<object>(["0", "WALLS"], Row(rows, "Layer").Choices!);
+        Assert.True(Row(rows, "Colour").HasChoices);
+        Assert.True(Row(rows, "Lineweight").HasChoices);
+
+        // And a length is still typed, because no list could hold one.
+        Assert.False(Row(rows, "Start X").HasChoices);
+    }
+
+    [Fact]
+    public void PickingAColourByNameSetsIt()
+    {
+        var colour = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Colour").Value = "Red";
+
+            return drawing.Entities[0].Style.Color;
+        });
+
+        Assert.Equal(new Rgb(255, 0, 0), colour);
+    }
+
+    [Fact]
+    public void AColourOutsideTheListIsShownAsHexAndReadBack()
+    {
+        var (shown, colour) = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Colour").Value = "#3C78D8";
+
+            // A drawing full of hand-mixed colours has to show the colour it
+            // has rather than snap to the nearest name in the list.
+            var rows = PropertySource.Build(canvas);
+            return (Row(rows, "Colour").Value, drawing.Entities[0].Style.Color);
+        });
+
+        Assert.Equal(new Rgb(0x3C, 0x78, 0xD8), colour);
+        Assert.Equal("#3C78D8", shown);
+    }
+
+    [Fact]
+    public void AColourRowCarriesAChipOfTheColourItShows()
+    {
+        var row = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Colour").Value = "Green";
+
+            return Row(PropertySource.Build(canvas), "Colour");
+        });
+
+        Assert.True(row.HasSwatch);
+        Assert.Equal(Colors.Lime, ((SolidColorBrush)row.Swatch!).Color);
+    }
+
+    [Fact]
+    public void ByLayerCopiesTheLayersColour()
+    {
+        var colour = OnCanvas((canvas, drawing) =>
+        {
+            drawing.AddLayer(new FreeDwg.Core.Scene.Layer("WALLS") { Color = new Rgb(12, 34, 56) });
+
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Layer").Value = "WALLS";
+            Row(PropertySource.Build(canvas), "Colour").Value = "By layer";
+
+            return drawing.Entities[0].Style.Color;
+        });
+
+        // A copy, not a link: ByLayer is resolved when a file is read, so
+        // there is nowhere in the scene to record "keep following the layer".
+        Assert.Equal(new Rgb(12, 34, 56), colour);
+    }
+
+    [Fact]
+    public void ANonsenseColourIsRefused()
+    {
+        var colour = OnCanvas((canvas, drawing) =>
+        {
+            var line = DrawAndSelect(canvas, drawing);
+            var before = line.Style.Color;
+
+            Row(PropertySource.Build(canvas), "Colour").Value = "burnt sienna";
+
+            Assert.Equal(before, drawing.Entities[0].Style.Color);
+            return drawing.Entities[0].Style.Color;
+        });
+
+        Assert.Equal(Rgb.White, colour);
+    }
+
+    [Theory]
+    [InlineData("0.50 mm", 50)]
+    [InlineData("0.25 mm", 25)]
+    [InlineData("2.11 mm", 211)]
+    [InlineData("Thinnest", 0)]
+    public void PickingALineweightSetsIt(string chosen, short hundredths)
+    {
+        var weight = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Lineweight").Value = chosen;
+
+            return drawing.Entities[0].Style.Lineweight;
+        });
+
+        Assert.Equal(hundredths, weight.Hundredths);
+    }
+
+    [Fact]
+    public void EveryOfferedLineweightIsOneThatCanBeChosen()
+    {
+        var rows = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            return PropertySource.Build(canvas);
+        });
+
+        // A list holding an answer the parser then refuses would be a trap,
+        // so every entry has to survive the round trip it will be put through.
+        foreach (string choice in Row(rows, "Lineweight").Choices!)
+        {
+            Assert.True(StyleChoices.TryWeight(choice, out var weight), $"'{choice}' was offered but not accepted");
+            Assert.Equal(choice, StyleChoices.WeightName(weight));
+        }
+    }
+
+    [Fact]
+    public void EveryOfferedColourIsOneThatCanBeChosen()
+    {
+        var rows = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            return PropertySource.Build(canvas);
+        });
+
+        foreach (string choice in Row(rows, "Colour").Choices!)
+        {
+            if (choice == StyleChoices.ByLayer) continue;   // handled on its own
+
+            Assert.True(StyleChoices.TryColour(choice, out var colour), $"'{choice}' was offered but not accepted");
+            Assert.Equal(choice, StyleChoices.ColourName(colour));
+        }
+    }
+
+    [Fact]
+    public void ChangingAColourIsUndoable()
+    {
+        var (changed, undone) = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Colour").Value = "Blue";
+
+            var after = drawing.Entities[0].Style.Color;
+            canvas.Undo();
+
+            return (after, drawing.Entities[0].Style.Color);
+        });
+
+        Assert.Equal(new Rgb(0, 0, 255), changed);
+        Assert.Equal(Rgb.White, undone);
     }
 
     [Fact]

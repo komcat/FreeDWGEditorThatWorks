@@ -1,4 +1,4 @@
-# Handoff: the reader is done, the editor is under way
+﻿# Handoff: the reader is done, the editor is under way
 
 Written at commit `1325ee0` and updated as the editor milestones land.
 Everything below is either in the repo or in the commit messages; this is the
@@ -293,6 +293,20 @@ overwrite an entity's geometry in place, the edit is undoable, and the
 replacement keeps the handle the file knows the object by. A value that will
 not parse puts the old text back rather than leaving the panel and the
 drawing disagreeing.
+
+Layer, colour and lineweight are dropdowns rather than typed text, since a
+field with a fixed set of answers should not have to be spelled from memory.
+The colour row carries a chip of the colour it names, as the layers panel
+does. Both lists are checked by a test that every value offered survives
+being read back -- a list holding an answer the parser then refuses would be
+a trap.
+
+Colour and lineweight names go through `StyleChoices`, which puts names back
+on the handful of values people pick and falls back to a hex triple or a
+plain measurement otherwise, so nothing in a real file is unrepresentable.
+"By layer" copies the layer's colour rather than linking to it, and the row
+says so: ByLayer is resolved at import, so the scene holds a colour and there
+is nowhere to record that it should keep following.
 
 This is also where real numeric entry should grow from: it is the only place
 in the app that takes a typed figure. The figure itself lives on the canvas

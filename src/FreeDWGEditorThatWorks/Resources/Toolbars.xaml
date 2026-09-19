@@ -14,6 +14,10 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!-- Hides an element whose condition is false, rather than collapsing a
+         gap: the colour chip only belongs on the rows that have a colour. -->
+    <BooleanToVisibilityConverter x:Key="ShowIfTrue" />
+
     <SolidColorBrush x:Key="Tool.Hover" Color="#22000000" />
     <SolidColorBrush x:Key="Tool.Pressed" Color="#33000000" />
     <SolidColorBrush x:Key="Tool.CheckedFill" Color="#3355A5FF" />

@@ -1,6 +1,9 @@
+﻿using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
+using FreeDwg.Core.Styling;
 
 namespace FreeDWGEditorThatWorks.ViewModels;
 
@@ -25,13 +28,15 @@ public sealed class PropertyRow : INotifyPropertyChanged
     private string _value;
 
     public PropertyRow(string category, string name, string description, string value,
-        Func<string, bool>? apply = null)
+        Func<string, bool>? apply = null, IReadOnlyList<string>? choices = null, Brush? swatch = null)
     {
         Category = category;
         Name = name;
         Description = description;
         _value = value;
         _apply = apply;
+        Choices = choices;
+        Swatch = swatch;
     }
 
     /// <summary>The heading this row sits under.</summary>
@@ -43,6 +48,21 @@ public sealed class PropertyRow : INotifyPropertyChanged
     public string Description { get; }
 
     public bool IsReadOnly => _apply is null;
+
+    /// <summary>
+    /// The answers this field accepts, or null when anything parseable will
+    /// do. A field with a fixed set of answers should not be spelled out
+    /// from memory, and getting the spelling wrong is the commonest way to
+    /// have an edit silently refused.
+    /// </summary>
+    public IReadOnlyList<string>? Choices { get; }
+
+    public bool HasChoices => Choices is { Count: > 0 } && !IsReadOnly;
+
+    /// <summary>A colour chip shown beside the value, for the rows that have one.</summary>
+    public Brush? Swatch { get; private set; }
+
+    public bool HasSwatch => Swatch is not null;
 
     public string Value
     {
@@ -63,6 +83,14 @@ public sealed class PropertyRow : INotifyPropertyChanged
             _value = value;
             Notify();
         }
+    }
+
+    /// <summary>Builds a frozen chip brush for a colour row.</summary>
+    public static Brush Chip(Rgb colour)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(colour.R, colour.G, colour.B));
+        brush.Freeze();
+        return brush;
     }
 
     /// <summary>Updates the displayed text without running the setter.</summary>
