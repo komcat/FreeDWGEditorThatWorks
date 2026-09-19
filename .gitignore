@@ -1,0 +1,68 @@
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+## MSBuild / test / profiling
+*.binlog
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.coverage
+*.coveragexml
+*.psess
+*.vsp
+*.vspx
+
+## OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.DS_Store
+
+## Project-local scratch
+scratch/
+*.local.json
+
+## CAD sample/output files are large and often not redistributable.
+## Test fixtures live under tests/fixtures/ and are whitelisted there.
+*.dwg
+*.dxf
+*.bak
+*.dwl
+*.dwl2
+!tests/fixtures/**/*.dwg
+!tests/fixtures/**/*.dxf
