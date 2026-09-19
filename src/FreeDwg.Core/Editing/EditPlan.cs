@@ -1,4 +1,4 @@
-using FreeDwg.Core.Scene;
+﻿using FreeDwg.Core.Scene;
 
 namespace FreeDwg.Core.Editing;
 
@@ -37,4 +37,30 @@ public readonly record struct EditPlan(
     }
 
     public static EditPlan Erase(SceneEntity original) => new([original], []);
+
+    /// <summary>
+    /// Many entities swapped one for one, for an edit applied across a
+    /// selection.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a single plan rather than one per entity so that setting the
+    /// layer of forty objects is one step on the undo stack. Forty steps
+    /// would be technically correct and unusable.
+    /// </remarks>
+    public static EditPlan Swap(IReadOnlyList<(SceneEntity Original, SceneEntity Replacement)> pairs)
+    {
+        var removed = new SceneEntity[pairs.Count];
+        var added = new SceneEntity[pairs.Count];
+
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            var (original, replacement) = pairs[i];
+            replacement.SourceHandle = original.SourceHandle;
+
+            removed[i] = original;
+            added[i] = replacement;
+        }
+
+        return new EditPlan(removed, added);
+    }
 }

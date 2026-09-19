@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.Linq;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using FreeDwg.Core.Commands;
@@ -853,6 +854,26 @@ public sealed class CadCanvas : FrameworkElement
             EditPlan.Replace(original, updated), name));
 
         Selection.Set([updated]);
+
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>
+    /// Swaps a whole set of entities for edited copies, as one undo step.
+    /// </summary>
+    /// <remarks>
+    /// One command rather than one per entity: setting the layer of forty
+    /// objects should take one press of Ctrl+Z to put back, not forty.
+    /// </remarks>
+    public bool ApplyEdits(IReadOnlyList<(SceneEntity Original, SceneEntity Updated)> pairs, string name)
+    {
+        if (_drawing is null || Commands is null || pairs.Count == 0) return false;
+
+        Commands.Do(new ReplaceEntities(_drawing.ActiveLayout, EditPlan.Swap(pairs), name));
+
+        Selection.Set(pairs.Select(pair => pair.Updated));
 
         DrawingEdited?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();

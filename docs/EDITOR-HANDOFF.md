@@ -308,6 +308,21 @@ plain measurement otherwise, so nothing in a real file is unrepresentable.
 says so: ByLayer is resolved at import, so the scene holds a colour and there
 is nowhere to record that it should keep following.
 
+Several objects at once show what they have in common: layer, colour and
+lineweight always, plus the one geometric figure they share when they are all
+the same kind, such as the radius of a set of circles. A field they disagree
+on reads `*varies*` rather than picking one of the answers to display, which
+would be a lie about the rest, and choosing the marker back is a no-op rather
+than an error.
+
+A batch edit is **one** command, so putting forty objects on another layer
+takes one press of Ctrl+Z to undo rather than forty. `EditPlan.Swap` builds
+the one-for-one plan, and `ReplaceEntities` learned to put each replacement
+back at its own original's index when the counts match. That matters more
+than it sounds: a selection is in the order it was picked, not the order the
+entities sit in, and entity order is painting order, so restoring in pick
+order would quietly reshuffle the drawing. There is a test for exactly that.
+
 This is also where real numeric entry should grow from: it is the only place
 in the app that takes a typed figure. The figure itself lives on the canvas
 as `CornerRadius`, not on the tool: it was copied into the tool at

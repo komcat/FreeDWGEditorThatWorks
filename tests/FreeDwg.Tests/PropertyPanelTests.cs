@@ -90,26 +90,216 @@ public sealed class PropertyPanelTests
         Assert.False(Row(rows, "Start X").IsReadOnly);
     }
 
-    [Fact]
-    public void SeveralObjectsSelectedOffersACountRatherThanGeometry()
+    // ---- several objects at once ------------------------------------------
+
+    /// <summary>Draws a stack of lines and selects them all.</summary>
+    private static void DrawAndSelectMany(CadCanvas canvas, int count)
     {
-        var rows = OnCanvas((canvas, drawing) =>
+        canvas.UseTool(new LineTool());
+
+        for (int i = 0; i < count; i++)
         {
-            canvas.UseTool(new LineTool());
-            canvas.PlaceToolPoint(new Vec2(0, 0));
-            canvas.PlaceToolPoint(new Vec2(100, 0));
-            canvas.PlaceToolPoint(new Vec2(0, 10));
-            canvas.PlaceToolPoint(new Vec2(100, 10));
+            canvas.PlaceToolPoint(new Vec2(0, i * 10));
+            canvas.PlaceToolPoint(new Vec2(100, i * 10));
+        }
 
-            canvas.UseSelect();
-            canvas.PickAt(new Vec2(50, 0));
-            canvas.PickAt(new Vec2(50, 10), extend: true);
+        canvas.UseSelect();
+        for (int i = 0; i < count; i++) canvas.PickAt(new Vec2(50, i * 10), extend: true);
+    }
 
+    [Fact]
+    public void SeveralObjectsShowWhatTheyHaveInCommon()
+    {
+        var rows = OnCanvas((canvas, _) =>
+        {
+            DrawAndSelectMany(canvas, 3);
             return PropertySource.Build(canvas);
         });
 
-        Assert.Equal("2 objects", Row(rows, "Selection").Value);
+        Assert.Equal("3 lines", Row(rows, "Selection").Value);
+
+        // The three every entity has, whatever it is, and all editable.
+        Assert.Equal("0", Row(rows, "Layer").Value);
+        Assert.Equal("White", Row(rows, "Colour").Value);
+        Assert.False(Row(rows, "Layer").IsReadOnly);
+        Assert.False(Row(rows, "Lineweight").IsReadOnly);
+
+        // Positions are not offered across a selection: setting every start
+        // point to one coordinate would just stack them.
         Assert.DoesNotContain(rows, row => row.Name == "Start X");
+    }
+
+    [Fact]
+    public void SettingTheLayerOfManyObjectsIsOneUndoStep()
+    {
+        var (moved, afterUndo) = OnCanvas((canvas, drawing) =>
+        {
+            drawing.AddLayer(new FreeDwg.Core.Scene.Layer("WALLS"));
+            DrawAndSelectMany(canvas, 4);
+
+            Row(PropertySource.Build(canvas), "Layer").Value = "WALLS";
+            int onWalls = drawing.Entities.Count(entity => entity.LayerIndex == 1);
+
+            // One press of Ctrl+Z, not four.
+            canvas.Undo();
+            return (onWalls, drawing.Entities.Count(entity => entity.LayerIndex == 1));
+        });
+
+        Assert.Equal(4, moved);
+        Assert.Equal(0, afterUndo);
+    }
+
+    [Fact]
+    public void AFieldTheSelectionDisagreesOnShowsAsVarying()
+    {
+        var rows = OnCanvas((canvas, drawing) =>
+        {
+            drawing.AddLayer(new FreeDwg.Core.Scene.Layer("WALLS"));
+            DrawAndSelectMany(canvas, 2);
+
+            // Move one of them, then take both again.
+            canvas.Selection.Clear();
+            canvas.PickAt(new Vec2(50, 0));
+            Row(PropertySource.Build(canvas), "Layer").Value = "WALLS";
+
+            canvas.PickAt(new Vec2(50, 10), extend: true);
+            return PropertySource.Build(canvas);
+        });
+
+        // Showing one of the two answers would be a lie about the other.
+        Assert.Equal(PropertySource.Varies, Row(rows, "Layer").Value);
+        Assert.Contains(PropertySource.Varies, Row(rows, "Layer").Choices!);
+    }
+
+    [Fact]
+    public void NoColourChipWhileTheSelectionDisagrees()
+    {
+        bool chip = OnCanvas((canvas, _) =>
+        {
+            DrawAndSelectMany(canvas, 2);
+
+            canvas.Selection.Clear();
+            canvas.PickAt(new Vec2(50, 0));
+            Row(PropertySource.Build(canvas), "Colour").Value = "Red";
+
+            canvas.PickAt(new Vec2(50, 10), extend: true);
+            return Row(PropertySource.Build(canvas), "Colour").HasSwatch;
+        });
+
+        // There is no one colour to show a chip of.
+        Assert.False(chip);
+    }
+
+    [Fact]
+    public void ChoosingTheVaryingMarkerChangesNothing()
+    {
+        var layers = OnCanvas((canvas, drawing) =>
+        {
+            drawing.AddLayer(new FreeDwg.Core.Scene.Layer("WALLS"));
+            DrawAndSelectMany(canvas, 2);
+
+            canvas.Selection.Clear();
+            canvas.PickAt(new Vec2(50, 0));
+            Row(PropertySource.Build(canvas), "Layer").Value = "WALLS";
+            canvas.PickAt(new Vec2(50, 10), extend: true);
+
+            Row(PropertySource.Build(canvas), "Layer").Value = PropertySource.Varies;
+
+            return drawing.Entities.Select(entity => entity.LayerIndex).OrderBy(index => index).ToList();
+        });
+
+        // Picking the marker back is changing your mind, not an instruction.
+        Assert.Equal([0, 1], layers);
+    }
+
+    [Fact]
+    public void SettingARadiusAcrossSeveralCircles()
+    {
+        var radii = OnCanvas((canvas, drawing) =>
+        {
+            canvas.UseTool(new CircleTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(10, 0));
+            canvas.PlaceToolPoint(new Vec2(0, 60));
+            canvas.PlaceToolPoint(new Vec2(25, 60));
+
+            canvas.UseSelect();
+            canvas.PickAt(new Vec2(10, 0));
+            canvas.PickAt(new Vec2(25, 60), extend: true);
+
+            var rows = PropertySource.Build(canvas);
+
+            // They disagree to start with, and agree afterwards.
+            Assert.Equal(PropertySource.Varies, Row(rows, "Radius").Value);
+            Row(rows, "Radius").Value = "7";
+
+            return drawing.Entities.OfType<SCircle>().Select(circle => circle.Radius).ToList();
+        });
+
+        Assert.Equal([7.0, 7.0], radii);
+    }
+
+    [Fact]
+    public void AGeometryRowIsOnlyOfferedWhenEverythingSelectedHasIt()
+    {
+        var names = OnCanvas((canvas, _) =>
+        {
+            canvas.UseTool(new CircleTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.PlaceToolPoint(new Vec2(10, 0));
+
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 60));
+            canvas.PlaceToolPoint(new Vec2(100, 60));
+
+            canvas.UseSelect();
+            canvas.PickAt(new Vec2(10, 0));
+            canvas.PickAt(new Vec2(50, 60), extend: true);
+
+            return PropertySource.Build(canvas).Select(row => row.Name).ToList();
+        });
+
+        // A circle and a line have a layer and a colour in common, and no
+        // geometry at all.
+        Assert.Contains("Colour", names);
+        Assert.DoesNotContain("Radius", names);
+    }
+
+    [Fact]
+    public void EditingManyObjectsKeepsThemAllSelected()
+    {
+        int count = OnCanvas((canvas, _) =>
+        {
+            DrawAndSelectMany(canvas, 5);
+            Row(PropertySource.Build(canvas), "Colour").Value = "Red";
+
+            // The edit swaps every one of them for a copy, so the selection
+            // has to follow or the panel empties itself mid-edit.
+            return canvas.Selection.Count;
+        });
+
+        Assert.Equal(5, count);
+    }
+
+    [Fact]
+    public void EditingASelectionKeepsThePaintingOrderItWasIn()
+    {
+        var order = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelectMany(canvas, 4);
+
+            // Picked bottom-up, which is not the order they sit in.
+            canvas.Selection.Clear();
+            for (int i = 3; i >= 0; i--) canvas.PickAt(new Vec2(50, i * 10), extend: true);
+
+            Row(PropertySource.Build(canvas), "Colour").Value = "Blue";
+
+            // Entity order is painting order, so a batch edit that put them
+            // back in the order they were picked would reshuffle the drawing.
+            return drawing.Entities.OfType<SLine>().Select(line => line.Start.Y).ToList();
+        });
+
+        Assert.Equal([0.0, 10.0, 20.0, 30.0], order);
     }
 
     // ---- editing settings --------------------------------------------------

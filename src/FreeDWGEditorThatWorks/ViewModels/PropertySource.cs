@@ -25,6 +25,12 @@ public static class PropertySource
     private const string Settings = "Editor";
     private const string General = "General";
 
+    /// <summary>
+    /// Shown where the selection disagrees. Asterisked the way AutoCAD marks
+    /// it, so it reads as a state rather than as a value anyone typed.
+    /// </summary>
+    public const string Varies = "*varies*";
+
     public static List<PropertyRow> Build(CadCanvas canvas)
     {
         var rows = new List<PropertyRow>();
@@ -98,9 +104,7 @@ public static class PropertySource
 
         if (selected.Count > 1)
         {
-            rows.Add(new PropertyRow(General, "Selection",
-                "Several objects are selected. Pick one on its own to see and edit its geometry.",
-                $"{selected.Count} objects"));
+            AddShared(canvas, drawing, selected, rows);
             return;
         }
 
@@ -140,6 +144,177 @@ public static class PropertySource
             choices: StyleChoices.Weights(entity.Style.Lineweight)));
 
         AddGeometry(canvas, entity, rows);
+    }
+
+    /// <summary>What several objects at once have in common.</summary>
+    /// <remarks>
+    /// Where a properties panel earns its keep: putting forty lines on
+    /// another layer is one edit here and forty of them anywhere else. A
+    /// field the selection does not agree on shows as varying rather than
+    /// picking one of the answers to display, which would be a lie about
+    /// thirty-nine of them.
+    /// </remarks>
+    private static void AddShared(CadCanvas canvas, Drawing drawing,
+        IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        string kinds = selected.Select(Describe).Distinct().Count() == 1
+            ? Describe(selected[0]).ToLowerInvariant() + "s"
+            : "objects";
+
+        rows.Add(new PropertyRow(General, "Selection",
+            "How many objects are selected. Everything below is applied to all of them at once.",
+            $"{selected.Count} {kinds}"));
+
+        // Every entity has these three, whatever it is.
+        var layers = drawing.Layers.Select(layer => layer.Name).ToList();
+
+        rows.Add(new PropertyRow(General, "Layer",
+            "The layer these objects are on. Picking one moves all of them there, in a single step.",
+            Shared(selected, entity => LayerName(drawing, entity.LayerIndex), out bool sameLayer),
+            // Choosing the marker itself is a no-op rather than a failure:
+            // it is what the box already shows, and refusing it would flash
+            // an error at someone who changed their mind.
+            text => text == Varies
+                 || EditAll(canvas, selected, copy => MoveCopyToLayer(drawing, copy, text), "Set layer"),
+            choices: WithVaries(layers, sameLayer)));
+
+        var colour = Shared(selected, entity => StyleChoices.ColourName(entity.Style.Color), out bool sameColour);
+
+        rows.Add(new PropertyRow(General, "Colour",
+            "The colour these objects draw in. Picking one sets all of them.",
+            colour,
+            text => text == Varies
+                 || EditAll(canvas, selected, copy => SetCopyColour(drawing, copy, text), "Set colour"),
+            choices: WithVaries(StyleChoices.Colours(selected[0].Style.Color), sameColour),
+            swatch: sameColour ? PropertyRow.Chip(selected[0].Style.Color) : null));
+
+        var weight = Shared(selected, entity => StyleChoices.WeightName(entity.Style.Lineweight), out bool sameWeight);
+
+        rows.Add(new PropertyRow(General, "Lineweight",
+            "Plot width for all of these objects.",
+            weight,
+            text => text == Varies
+                 || EditAll(canvas, selected, copy =>
+                 {
+                     if (!StyleChoices.TryWeight(text, out var value)) return false;
+
+                     copy.Style = copy.Style with { Lineweight = value };
+                     return true;
+                 }, "Set lineweight"),
+            choices: WithVaries(StyleChoices.Weights(selected[0].Style.Lineweight), sameWeight)));
+
+        AddSharedGeometry(canvas, selected, rows);
+    }
+
+    /// <summary>
+    /// The geometry rows that make sense across a selection: the ones that
+    /// are a single figure rather than a position. Setting the radius of
+    /// every circle at once is useful; setting every start point to the same
+    /// coordinate would just stack them.
+    /// </summary>
+    private static void AddSharedGeometry(CadCanvas canvas,
+        IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        if (selected.All(entity => entity is SCircle))
+        {
+            rows.Add(SharedNumber(canvas, selected, "Circle", "Radius", "Radius of every selected circle.",
+                entity => ((SCircle)entity).Radius,
+                (copy, value) => { if (value <= 0) return false; ((SCircle)copy).Radius = value; return true; }));
+            return;
+        }
+
+        if (selected.All(entity => entity is SArc))
+        {
+            rows.Add(SharedNumber(canvas, selected, "Arc", "Radius", "Radius of every selected arc.",
+                entity => ((SArc)entity).Radius,
+                (copy, value) => { if (value <= 0) return false; ((SArc)copy).Radius = value; return true; }));
+            return;
+        }
+
+        if (selected.All(entity => entity is SText))
+        {
+            rows.Add(SharedNumber(canvas, selected, "Text", "Height", "Cap height of every selected text.",
+                entity => ((SText)entity).Height,
+                (copy, value) => { if (value <= 0) return false; ((SText)copy).Height = value; return true; }));
+        }
+    }
+
+    private static PropertyRow SharedNumber(CadCanvas canvas, IReadOnlyList<SceneEntity> selected,
+        string category, string name, string description,
+        Func<SceneEntity, double> read, Func<SceneEntity, double, bool> write) =>
+        new(category, name, description,
+            Shared(selected, entity => PropertyRow.Number(read(entity)), out _),
+            text => PropertyRow.TryNumber(text, out double value)
+                 && EditAll(canvas, selected, copy => write(copy, value), $"Set {name.ToLowerInvariant()}"));
+
+    /// <summary>The value they all share, or <see cref="Varies"/>.</summary>
+    private static string Shared(IReadOnlyList<SceneEntity> selected,
+        Func<SceneEntity, string> read, out bool agreed)
+    {
+        string first = read(selected[0]);
+        agreed = selected.All(entity => read(entity) == first);
+
+        return agreed ? first : Varies;
+    }
+
+    private static IReadOnlyList<string> WithVaries(IReadOnlyList<string> choices, bool agreed)
+    {
+        if (agreed) return choices;
+
+        // Shown in the list so the box has something to display while the
+        // selection disagrees, rather than looking empty and broken.
+        var withMarker = new List<string> { Varies };
+        withMarker.AddRange(choices);
+        return withMarker;
+    }
+
+    /// <summary>
+    /// Applies a change to every selected object, as one step on the undo
+    /// stack. A change that any one of them refuses is applied to none.
+    /// </summary>
+    private static bool EditAll(CadCanvas canvas, IReadOnlyList<SceneEntity> selected,
+        Func<SceneEntity, bool> change, string name)
+    {
+        var pairs = new List<(SceneEntity, SceneEntity)>(selected.Count);
+
+        foreach (var entity in selected)
+        {
+            var copy = entity.Clone();
+            if (!change(copy)) return false;
+
+            copy.InvalidateBounds();
+            pairs.Add((entity, copy));
+        }
+
+        return canvas.ApplyEdits(pairs, $"{name} on {selected.Count} objects");
+    }
+
+    private static bool MoveCopyToLayer(Drawing drawing, SceneEntity copy, string name)
+    {
+        int index = drawing.Layers.FindIndex(layer =>
+            string.Equals(layer.Name, name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (index < 0) return false;
+
+        copy.LayerIndex = index;
+        copy.Style = drawing.Layers[index].Style;
+        return true;
+    }
+
+    private static bool SetCopyColour(Drawing drawing, SceneEntity copy, string text)
+    {
+        if (string.Equals(text.Trim(), StyleChoices.ByLayer, StringComparison.OrdinalIgnoreCase))
+        {
+            if ((uint)copy.LayerIndex >= (uint)drawing.Layers.Count) return false;
+
+            copy.Style = copy.Style with { Color = drawing.Layers[copy.LayerIndex].Color };
+            return true;
+        }
+
+        if (!StyleChoices.TryColour(text, out var colour)) return false;
+
+        copy.Style = copy.Style with { Color = colour };
+        return true;
     }
 
     private static void AddGeometry(CadCanvas canvas, SceneEntity entity, List<PropertyRow> rows)
