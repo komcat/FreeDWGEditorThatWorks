@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
@@ -9,6 +10,7 @@ using FreeDwg.Interop.Acad;
 using FreeDWGEditorThatWorks.ViewModels;
 using Microsoft.Win32;
 using SceneDrawing = FreeDwg.Core.Scene.Drawing;
+using SceneLayout = FreeDwg.Core.Scene.Layout;
 
 namespace FreeDWGEditorThatWorks;
 
@@ -59,6 +61,7 @@ public partial class MainWindow : Window
             EmptyHint.Visibility = Visibility.Collapsed;
             Title = $"FreeDWG Editor - {Path.GetFileName(path)}";
 
+            PopulateLayouts(drawing);
             PopulateLayers(drawing);
             UpdateStatus();
         }
@@ -72,6 +75,31 @@ public partial class MainWindow : Window
         {
             Cursor = Cursors.Arrow;
         }
+    }
+
+    private void PopulateLayouts(SceneDrawing drawing)
+    {
+        LayoutTabs.ItemsSource = drawing.Layouts;
+        LayoutTabs.SelectedItem = drawing.ActiveLayout;
+
+        // A drawing with nothing but model space has no tabs worth showing.
+        LayoutTabs.Visibility = drawing.Layouts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnLayoutSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+        if (LayoutTabs.SelectedItem is not SceneLayout layout) return;
+        if (ReferenceEquals(drawing.ActiveLayout, layout)) return;
+
+        drawing.ActiveLayout = layout;
+
+        // Model space and a sheet are in different units and nowhere near each
+        // other, so the view has to be reframed rather than kept.
+        Canvas.ZoomExtents();
+
+        PopulateLayers(drawing);
+        UpdateStatus();
     }
 
     private void PopulateLayers(SceneDrawing drawing)
@@ -121,9 +149,10 @@ public partial class MainWindow : Window
         string blocks = drawing is null || drawing.Blocks.Count == 0
             ? ""
             : $"   |   {drawing.Blocks.Count} blocks";
+        string layout = drawing is null ? "" : $"   |   {drawing.ActiveLayout.Name}";
 
         StatusText.Text =
-            $"{_diagnostics.Summary()}{blocks}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn";
+            $"{_diagnostics.Summary()}{blocks}{layout}   |   extents {extents}   |   {Canvas.LastStats.Drawn} drawn";
     }
 
     /// <summary>Minimal ICommand shim so a keyboard shortcut can invoke an async method.</summary>

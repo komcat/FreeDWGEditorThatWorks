@@ -81,12 +81,35 @@
                           Background="Transparent" />
 
             <Grid Grid.Column="2">
-                <ctl:CadCanvas x:Name="Canvas" />
-                <TextBlock x:Name="EmptyHint"
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <ctl:CadCanvas x:Name="Canvas" Grid.Row="0" />
+
+                <TextBlock x:Name="EmptyHint" Grid.Row="0"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="#7F8C99" FontSize="15" IsHitTestVisible="False"
                            Text="Open a .dwg or .dxf to begin&#x0a;Scroll to zoom, drag to pan"
                            TextAlignment="Center" />
+
+                <!-- Model and paper space sheets, in tab order, as in AutoCAD. -->
+                <ListBox x:Name="LayoutTabs" Grid.Row="1" BorderThickness="0,1,0,0"
+                         Visibility="Collapsed" SelectionChanged="OnLayoutSelected"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" Margin="10,3" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Grid>
     </DockPanel>

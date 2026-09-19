@@ -17,7 +17,8 @@ public readonly record struct EmitContext(
     IDrawingSink Sink,
     IReadOnlyList<Layer> Layers,
     int Depth,
-    double PixelsPerUnit)
+    double PixelsPerUnit,
+    IReadOnlySet<int>? FrozenLayers = null)
 {
     /// <summary>
     /// Depth cap. A block that references itself is invalid but does occur in
@@ -28,8 +29,15 @@ public readonly record struct EmitContext(
     public EmitContext(IDrawingSink sink, IReadOnlyList<Layer> layers, double pixelsPerUnit)
         : this(sink, layers, 0, pixelsPerUnit) { }
 
-    public bool IsLayerVisible(int layerIndex) =>
-        (uint)layerIndex >= (uint)Layers.Count || Layers[layerIndex].IsVisible;
+    public bool IsLayerVisible(int layerIndex)
+    {
+        if ((uint)layerIndex >= (uint)Layers.Count) return true;
+        if (!Layers[layerIndex].IsVisible) return false;
+
+        // A paper space viewport can freeze layers for itself alone, so the
+        // same layer can be visible in one window and not the next.
+        return FrozenLayers is null || !FrozenLayers.Contains(layerIndex);
+    }
 
     public EmitContext Nested() => this with { Depth = Depth + 1 };
 }

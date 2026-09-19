@@ -44,6 +44,15 @@ public interface IDrawingSink
     void PopTransform();
 
     /// <summary>
+    /// Restricts drawing to a rectangle in the current space. Used by paper
+    /// space viewports, which show a window onto model space and must not
+    /// spill past its frame.
+    /// </summary>
+    void PushClip(Bounds2 rectangle);
+
+    void PopClip();
+
+    /// <summary>
     /// Fills a set of closed rings using the even-odd rule, so that a ring
     /// inside another reads as a hole.
     /// </summary>

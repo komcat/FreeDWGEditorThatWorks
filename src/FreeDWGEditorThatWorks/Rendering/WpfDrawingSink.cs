@@ -31,6 +31,7 @@ public sealed class WpfDrawingSink : IDrawingSink
     /// <summary>Current local space to device pixels, camera included.</summary>
     private Mat3 _toDevice;
 
+    private int _clipDepth;
     private StreamGeometry? _geometry;
     private StreamGeometryContext? _figure;
     private Pen? _pen;
@@ -51,6 +52,36 @@ public sealed class WpfDrawingSink : IDrawingSink
     }
 
     public void PopTransform() => _toDevice = _transformStack.Pop();
+
+    public void PushClip(Bounds2 rectangle)
+    {
+        EndFigure();
+
+        // Built from the transform in force now, before the viewport pushes
+        // its own: the frame belongs to the sheet, not to what it looks at.
+        var geometry = new StreamGeometry();
+
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(ToPoint(new Vec2(rectangle.MinX, rectangle.MinY)), isFilled: true, isClosed: true);
+            context.LineTo(ToPoint(new Vec2(rectangle.MaxX, rectangle.MinY)), isStroked: false, isSmoothJoin: false);
+            context.LineTo(ToPoint(new Vec2(rectangle.MaxX, rectangle.MaxY)), isStroked: false, isSmoothJoin: false);
+            context.LineTo(ToPoint(new Vec2(rectangle.MinX, rectangle.MaxY)), isStroked: false, isSmoothJoin: false);
+        }
+
+        geometry.Freeze();
+        _dc.PushClip(geometry);
+        _clipDepth++;
+    }
+
+    public void PopClip()
+    {
+        if (_clipDepth == 0) return;
+
+        EndFigure();
+        _dc.Pop();
+        _clipDepth--;
+    }
 
     public void BeginFigure(Vec2 start, bool closed, in DisplayStyle style)
     {

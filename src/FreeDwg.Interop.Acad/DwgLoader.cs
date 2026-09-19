@@ -13,6 +13,7 @@ using AcadCircle = ACadSharp.Entities.Circle;
 using AcadEllipse = ACadSharp.Entities.Ellipse;
 using AcadLine = ACadSharp.Entities.Line;
 using SceneLayer = FreeDwg.Core.Scene.Layer;
+using SceneLayout = FreeDwg.Core.Scene.Layout;
 using SceneLinetype = FreeDwg.Core.Styling.Linetype;
 
 namespace FreeDwg.Interop.Acad;
@@ -39,7 +40,7 @@ public static class DwgLoader
         return drawing;
     }
 
-    /// <summary>Converts an already-open document. Model space only, for now.</summary>
+    /// <summary>Converts an already-open document, model space and all sheets.</summary>
     public static Drawing Convert(CadDocument document, ImportDiagnostics diagnostics) =>
         new Converter(document, diagnostics).Run();
 
@@ -89,11 +90,10 @@ public static class DwgLoader
 
             ConvertLayers();
             ConvertBlocks();
+            ConvertLayouts();
 
-            foreach (var entity in _document.Entities)
-                AddConverted(entity, _drawing.Entities);
-
-            _diagnostics.ImportedCount = _drawing.Entities.Count;
+            foreach (var layout in _drawing.Layouts)
+                _diagnostics.ImportedCount += layout.Entities.Count;
             foreach (var (shx, substitute) in _fonts.Substitutions)
                 _diagnostics.FontSubstituted(shx, substitute);
 
@@ -172,9 +172,73 @@ public static class DwgLoader
             }
         }
 
+        /// <summary>
+        /// Model space, then each paper space sheet in tab order. Model space
+        /// has to come first so that the viewports on a sheet have something
+        /// to point at.
+        /// </summary>
+        private void ConvertLayouts()
+        {
+            foreach (var entity in _document.Entities)
+                AddConverted(entity, _drawing.ModelSpace.Entities);
+
+            var sheets = _document.Layouts
+                .Where(layout => layout.IsPaperSpace)
+                .OrderBy(layout => layout.TabOrder);
+
+            foreach (var acadLayout in sheets)
+            {
+                var layout = _drawing.AddLayout(new SceneLayout(acadLayout.Name, isPaperSpace: true)
+                {
+                    PaperWidth = acadLayout.PaperWidth,
+                    PaperHeight = acadLayout.PaperHeight,
+                    SourceHandle = acadLayout.Handle,
+                });
+
+                if (acadLayout.AssociatedBlock is null) continue;
+
+                foreach (var entity in acadLayout.AssociatedBlock.Entities)
+                    AddConverted(entity, layout.Entities);
+            }
+        }
+
+        private SceneEntity? ConvertViewport(Viewport viewport)
+        {
+            // Every sheet carries a pseudo-viewport standing for the sheet
+            // itself; it is not a window onto anything.
+            if (viewport.RepresentsPaper) return null;
+            if (viewport.Width <= 0 || viewport.Height <= 0 || viewport.ViewHeight <= 0) return null;
+
+            var center = ToVec2(viewport.Center);
+            var rect = Bounds2.FromCorners(
+                new Vec2(center.X - viewport.Width / 2, center.Y - viewport.Height / 2),
+                new Vec2(center.X + viewport.Width / 2, center.Y + viewport.Height / 2));
+
+            HashSet<int>? frozen = null;
+            foreach (var layer in viewport.FrozenLayers)
+            {
+                if (!_layerIndexByHandle.TryGetValue(layer.Handle, out int index)) continue;
+                (frozen ??= new HashSet<int>()).Add(index);
+            }
+
+            return new SViewport(_drawing.ModelSpace, rect,
+                new Vec2(viewport.ViewCenter.X, viewport.ViewCenter.Y), viewport.ViewHeight)
+            {
+                TwistAngle = viewport.TwistAngle,
+                IsOn = !viewport.Status.HasFlag(ViewportStatusFlags.ViewportOff),
+                FrozenLayers = frozen,
+            };
+        }
+
         private void AddConverted(Entity entity, List<SceneEntity> target)
         {
             if (entity.IsInvisible) return;
+
+            // Every sheet carries a pseudo-viewport standing for the sheet
+            // itself. Dropping it here rather than in the converter keeps it
+            // out of the unsupported tally, which is for things we cannot
+            // draw rather than things there is nothing to draw.
+            if (entity is Viewport { RepresentsPaper: true }) return;
 
             // An INSERT may expand into a grid of instances (MINSERT).
             if (entity is Insert insert)
@@ -263,6 +327,7 @@ public static class DwgLoader
             Spline spline => ConvertSpline(spline),
             Hatch hatch => ConvertHatch(hatch),
             Solid solid => ConvertSolid(solid),
+            Viewport viewport => ConvertViewport(viewport),
             Dimension dimension => ConvertDimension(dimension),
             MText mtext => ConvertMText(mtext),
             TextEntity text => ConvertText(text),
