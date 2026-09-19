@@ -10,6 +10,7 @@ using FreeDwg.Core.Scene.Entities;
 using FreeDwg.Core.Styling;
 using AcadArc = ACadSharp.Entities.Arc;
 using AcadCircle = ACadSharp.Entities.Circle;
+using AcadEllipse = ACadSharp.Entities.Ellipse;
 using AcadLine = ACadSharp.Entities.Line;
 using SceneLayer = FreeDwg.Core.Scene.Layer;
 using SceneLinetype = FreeDwg.Core.Styling.Linetype;
@@ -49,6 +50,15 @@ public static class DwgLoader
     {
         /// <summary>A MINSERT grid this large is almost certainly corrupt data.</summary>
         private const int MaxArrayInstances = 10_000;
+
+        /// <summary>Segments per curved boundary edge when flattening a hatch.</summary>
+        private const int HatchBoundaryPrecision = 64;
+
+        /// <summary>
+        /// A dense pattern over a large region can run to millions of strokes,
+        /// which is neither drawable nor useful.
+        /// </summary>
+        private const int MaxHatchSegments = 200_000;
 
         /// <summary>
         /// AutoCAD spaces MTEXT lines at 5/3 of the text height when the line
@@ -247,10 +257,204 @@ public static class DwgLoader
             AcadCircle circle => new SCircle(ToVec2(circle.Center), circle.Radius),
             AcadLine line => new SLine(ToVec2(line.StartPoint), ToVec2(line.EndPoint)),
             LwPolyline polyline => ConvertLwPolyline(polyline),
+            Polyline2D polyline => ConvertPolyline(polyline.Vertices, polyline.IsClosed),
+            Polyline3D polyline => ConvertPolyline(polyline.Vertices, polyline.IsClosed),
+            AcadEllipse ellipse => ConvertEllipse(ellipse),
+            Spline spline => ConvertSpline(spline),
+            Hatch hatch => ConvertHatch(hatch),
+            Solid solid => ConvertSolid(solid),
+            Dimension dimension => ConvertDimension(dimension),
             MText mtext => ConvertMText(mtext),
             TextEntity text => ConvertText(text),
             _ => null,
         };
+
+        /// <summary>
+        /// A dimension carries its own generated geometry in an anonymous
+        /// block: the extension lines, arrowheads and text that AutoCAD
+        /// produced when it was last regenerated. Drawing that block renders
+        /// the dimension exactly as authored and skips reimplementing
+        /// dimension layout, which is only needed once the editor has to
+        /// regenerate one after an edit.
+        /// </summary>
+        private SceneEntity? ConvertDimension(Dimension dimension)
+        {
+            if (dimension.Block is null ||
+                !_blockByHandle.TryGetValue(dimension.Block.Handle, out var block))
+            {
+                return null;
+            }
+
+            var transform = SInsert.BuildTransform(
+                block.BasePoint, ToVec2(dimension.InsertionPoint), 1, 1, 0);
+
+            return new SInsert(block, transform);
+        }
+
+        /// <summary>
+        /// A filled triangle or quadrilateral. Worth supporting early despite
+        /// being a primitive nobody draws by hand: it is what dimension
+        /// arrowheads are made of, so without it every dimension renders
+        /// without its arrows.
+        /// </summary>
+        private static SHatch? ConvertSolid(Solid solid)
+        {
+            // The corners are stored in a Z order, not around the outline:
+            // the third and fourth are swapped relative to the drawn shape.
+            var corners = new List<Vec2>
+            {
+                ToVec2(solid.FirstCorner),
+                ToVec2(solid.SecondCorner),
+                ToVec2(solid.FourthCorner),
+                ToVec2(solid.ThirdCorner),
+            };
+
+            // A triangular SOLID repeats a corner; a duplicate would give the
+            // even-odd fill a zero-area spur.
+            var ring = new List<Vec2>();
+            foreach (var corner in corners)
+            {
+                if (ring.Count > 0 && Vec2.Distance(ring[^1], corner) < 1e-9) continue;
+                ring.Add(corner);
+            }
+            if (ring.Count > 2 && Vec2.Distance(ring[0], ring[^1]) < 1e-9) ring.RemoveAt(ring.Count - 1);
+
+            if (ring.Count < 3) return null;
+            return new SHatch(new[] { (IReadOnlyList<Vec2>)ring }) { IsSolid = true };
+        }
+
+        private static SEllipse ConvertEllipse(AcadEllipse ellipse)
+        {
+            // The major axis is stored as a vector from the centre, so it
+            // carries the ellipse's rotation with it.
+            var majorAxis = ToVec2(ellipse.MajorAxisEndPoint);
+
+            double sweep = ArcMath.Normalize(ellipse.EndParameter - ellipse.StartParameter);
+            if (sweep < 1e-12) sweep = ArcMath.TwoPi;
+
+            return new SEllipse(ToVec2(ellipse.Center), majorAxis, ellipse.RadiusRatio,
+                ellipse.StartParameter, sweep);
+        }
+
+        private SceneEntity? ConvertSpline(Spline spline)
+        {
+            var controlPoints = spline.ControlPoints;
+
+            if (controlPoints.Count == 0 && spline.FitPoints.Count > 0)
+            {
+                // A fit-point spline stores the points it passes through
+                // rather than a control polygon; ask the reader to derive one.
+                try
+                {
+                    spline.UpdateFromFitPoints(64);
+                    controlPoints = spline.ControlPoints;
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.Note(
+                        $"SPLINE {spline.Handle:X}: could not derive control points ({ex.GetType().Name}); drawing its fit points.");
+                }
+            }
+
+            if (controlPoints.Count == 0)
+            {
+                if (spline.FitPoints.Count < 2) return null;
+                return new SPolyline(ToVertices(spline.FitPoints), spline.IsClosed);
+            }
+
+            var points = new Vec2[controlPoints.Count];
+            for (int i = 0; i < points.Length; i++) points[i] = ToVec2(controlPoints[i]);
+
+            var knots = spline.Knots;
+            if (!BSpline.IsValid(points.Length, knots.Count, spline.Degree))
+            {
+                _diagnostics.Note(
+                    $"SPLINE {spline.Handle:X}: knot vector does not match degree {spline.Degree} with {points.Length} control points; drawing the control polygon.");
+            }
+
+            return new SSpline(points, knots, spline.Degree)
+            {
+                Weights = spline.Weights.Count == points.Length ? spline.Weights : null,
+                IsClosed = spline.IsClosed,
+            };
+        }
+
+        private SceneEntity? ConvertHatch(Hatch hatch)
+        {
+            var loops = new List<IReadOnlyList<Vec2>>();
+
+            foreach (var path in hatch.Paths)
+            {
+                var ring = Dedupe(path.GetPoints(HatchBoundaryPrecision));
+                if (ring.Count >= 3) loops.Add(ring);
+            }
+
+            var scene = new SHatch(loops) { IsSolid = hatch.IsSolid };
+
+            if (hatch.IsSolid) return loops.Count > 0 ? scene : null;
+
+            // The reader generates the pattern strokes already clipped to the
+            // boundary, which is the expensive half of hatching.
+            try
+            {
+                var segments = new List<Segment2>();
+                foreach (var entity in hatch.ExplodePattern())
+                {
+                    if (entity is AcadLine line)
+                        segments.Add(new Segment2(ToVec2(line.StartPoint), ToVec2(line.EndPoint)));
+
+                    if (segments.Count >= MaxHatchSegments)
+                    {
+                        _diagnostics.Note($"HATCH {hatch.Handle:X}: pattern exceeds {MaxHatchSegments} strokes; truncated.");
+                        break;
+                    }
+                }
+                scene.PatternSegments = segments;
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.Note($"HATCH {hatch.Handle:X}: pattern could not be generated ({ex.GetType().Name}).");
+            }
+
+            if (scene.PatternSegments.Count == 0 && loops.Count == 0) return null;
+            return scene;
+        }
+
+        /// <summary>Drops the repeated endpoints that an edge-by-edge boundary produces.</summary>
+        private static List<Vec2> Dedupe(IEnumerable<XYZ> points)
+        {
+            var ring = new List<Vec2>();
+            foreach (var p in points)
+            {
+                var v = ToVec2(p);
+                if (ring.Count > 0 && Vec2.Distance(ring[^1], v) < 1e-9) continue;
+                ring.Add(v);
+            }
+
+            // A closed ring does not need its first point repeated at the end.
+            if (ring.Count > 1 && Vec2.Distance(ring[0], ring[^1]) < 1e-9) ring.RemoveAt(ring.Count - 1);
+            return ring;
+        }
+
+        private static SPolyline? ConvertPolyline(IEnumerable<Vertex> vertices, bool closed)
+        {
+            var converted = ToVertices(vertices);
+            return converted.Length >= 2 ? new SPolyline(converted, closed) : null;
+        }
+
+        private static PolyVertex[] ToVertices(IEnumerable<Vertex> vertices)
+        {
+            var list = new List<PolyVertex>();
+            foreach (var v in vertices) list.Add(new PolyVertex(ToVec2(v.Location), v.Bulge));
+            return list.ToArray();
+        }
+
+        private static PolyVertex[] ToVertices(IEnumerable<XYZ> points)
+        {
+            var list = new List<PolyVertex>();
+            foreach (var p in points) list.Add(new PolyVertex(ToVec2(p)));
+            return list.ToArray();
+        }
 
         private SText? ConvertText(TextEntity text)
         {

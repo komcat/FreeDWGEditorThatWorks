@@ -122,6 +122,51 @@ public sealed class WpfDrawingSink : IDrawingSink
         EndFigure();
     }
 
+    public void FillLoops(IReadOnlyList<IReadOnlyList<Vec2>> loops, in DisplayStyle style)
+    {
+        EndFigure();
+
+        var geometry = new StreamGeometry { FillRule = FillRule.EvenOdd };
+
+        using (var context = geometry.Open())
+        {
+            foreach (var loop in loops)
+            {
+                if (loop.Count < 3) continue;
+
+                context.BeginFigure(ToPoint(loop[0]), isFilled: true, isClosed: true);
+                for (int i = 1; i < loop.Count; i++)
+                    context.LineTo(ToPoint(loop[i]), isStroked: false, isSmoothJoin: false);
+            }
+        }
+
+        geometry.Freeze();
+        _dc.DrawGeometry(GetBrush(_settings.Adapt(style).Color), pen: null, geometry);
+    }
+
+    public void Segments(IReadOnlyList<Segment2> segments, in DisplayStyle style)
+    {
+        if (segments.Count == 0) return;
+
+        EndFigure();
+
+        // One geometry for the whole pattern: a hatch is thousands of two-point
+        // runs, and a StreamGeometry apiece would dominate the frame.
+        var geometry = new StreamGeometry();
+
+        using (var context = geometry.Open())
+        {
+            foreach (var segment in segments)
+            {
+                context.BeginFigure(ToPoint(segment.A), isFilled: false, isClosed: false);
+                context.LineTo(ToPoint(segment.B), isStroked: true, isSmoothJoin: false);
+            }
+        }
+
+        geometry.Freeze();
+        _dc.DrawGeometry(brush: null, GetPen(style), geometry);
+    }
+
     public void Text(in TextRun run, in DisplayStyle style)
     {
         double scale = DeviceScaleBound;

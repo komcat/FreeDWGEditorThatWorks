@@ -33,7 +33,14 @@ public sealed class SInsert : SceneEntity
         if (context.Depth >= EmitContext.MaxDepth) return;
 
         context.Sink.PushTransform(Transform);
-        var nested = context.Nested();
+
+        // A scaled block changes what a drawing unit is worth on screen, which
+        // is what the curve entities inside it use to choose their sampling.
+        double scale = Math.Sqrt(Math.Abs(Transform.Determinant));
+        var nested = context.Nested() with
+        {
+            PixelsPerUnit = context.PixelsPerUnit * (scale > 0 ? scale : 1.0),
+        };
 
         foreach (var child in Block.Entities)
         {

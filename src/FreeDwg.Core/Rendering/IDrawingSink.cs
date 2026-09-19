@@ -44,6 +44,19 @@ public interface IDrawingSink
     void PopTransform();
 
     /// <summary>
+    /// Fills a set of closed rings using the even-odd rule, so that a ring
+    /// inside another reads as a hole.
+    /// </summary>
+    void FillLoops(IReadOnlyList<IReadOnlyList<Vec2>> loops, in DisplayStyle style);
+
+    /// <summary>
+    /// Strokes many disconnected two-point runs at once. A hatch pattern is
+    /// thousands of them, and one call lets the sink batch what would
+    /// otherwise be thousands of separate figures.
+    /// </summary>
+    void Segments(IReadOnlyList<Segment2> segments, in DisplayStyle style);
+
+    /// <summary>
     /// Draws a block of text. Shaping, measurement and wrapping are the sink's
     /// job: Core has no font stack, and only the renderer knows the metrics
     /// that alignment depends on.

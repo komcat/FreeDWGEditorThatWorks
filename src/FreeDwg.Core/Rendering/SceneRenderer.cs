@@ -14,7 +14,7 @@ public static class SceneRenderer
     public static RenderStats Render(Drawing drawing, Camera camera, IDrawingSink sink)
     {
         var visible = camera.VisibleWorldBounds;
-        var context = new EmitContext(sink, drawing.Layers);
+        var context = new EmitContext(sink, drawing.Layers, camera.Scale);
         int drawn = 0, culled = 0, hidden = 0;
 
         foreach (var entity in drawing.Entities)
