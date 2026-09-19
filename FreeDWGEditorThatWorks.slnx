@@ -4,4 +4,7 @@
     <Project Path="src/FreeDwg.Interop.Acad/FreeDwg.Interop.Acad.csproj" />
     <Project Path="src/FreeDWGEditorThatWorks/FreeDWGEditorThatWorks.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FreeDwg.Tests/FreeDwg.Tests.csproj" />
+  </Folder>
 </Solution>
