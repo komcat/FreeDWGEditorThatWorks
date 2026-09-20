@@ -364,6 +364,20 @@ A perpendicular foot beyond the end of a segment is refused rather than
 clamped. Clamped, it is the endpoint, which endpoint snap already offers, and
 offering it again under a name that promises a right angle would be a lie.
 
+**What you aim at is not always what you get,** and these two are where that
+matters. A tangent's touch point can be a quarter of the way round the rim
+from the cursor, so the thing being pointed at is the *circle* and the answer
+is worked out from it. `SnapCandidate.Reach` carries that distinction: the
+distance the candidate is ranked by, which for most snaps is simply the
+distance to the point itself. Built the other way round -- requiring the
+cursor to be near the computed point -- tangent is unusable, because you
+would have to know where the touch point was before you could aim at it.
+
+Snaps whose answer is under the cursor outrank the ones worked out from it,
+whatever the distances say. Pointing at the end of a line that happens to
+start on a circle gives that end, not a tangent point elsewhere on the rim,
+even when the rim is a hair nearer.
+
 Tracking acquires a point whenever the cursor rests on one and lines the next
 point up with it: level, above, or at the crossing of two acquired points,
 which is what someone reaching for the corner of two existing features

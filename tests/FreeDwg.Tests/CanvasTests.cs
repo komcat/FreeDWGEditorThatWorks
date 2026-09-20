@@ -393,6 +393,35 @@ public sealed class CanvasTests
         Assert.Equal(8, radius, 9);
     }
 
+    [Fact]
+    public void HoveringACircleWhileDrawingGivesATangentPoint()
+    {
+        var (kind, tangent, from) = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.Tangent;
+
+            canvas.UseTool(new CircleTool());
+            canvas.PlaceToolPoint(new Vec2(200, 0));
+            canvas.PlaceToolPoint(new Vec2(250, 0));
+
+            // Start a line well to the left, then hover the right of the rim.
+            canvas.UseTool(new LineTool());
+            var start = new Vec2(0, 0);
+            canvas.PlaceToolPoint(start);
+
+            var resolved = canvas.ResolvePoint(new Vec2(250, 0));
+            return (canvas.ActiveSnap.Kind, resolved, start);
+        });
+
+        Assert.Equal(SnapKind.Tangent, kind);
+
+        // Through the canvas, end to end: the point is on the rim and the
+        // radius there is square to the line coming in.
+        Assert.Equal(50, Vec2.Distance(tangent, new Vec2(200, 0)), 6);
+        Assert.Equal(0.0, Vec2.Dot((tangent - new Vec2(200, 0)).Normalized(),
+                                   (from - tangent).Normalized()), 6);
+    }
+
     // ---- one mode at a time ---------------------------------------------
 
     [Fact]

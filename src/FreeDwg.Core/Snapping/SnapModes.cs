@@ -82,7 +82,41 @@ public enum SnapKind
 }
 
 /// <summary>One point an entity is offering to snap to.</summary>
-public readonly record struct SnapCandidate(Vec2 Point, SnapKind Kind);
+public readonly record struct SnapCandidate(Vec2 Point, SnapKind Kind)
+{
+    /// <summary>
+    /// How near the cursor has to be for this to be offered, and what it is
+    /// ranked by. NaN means the distance to <see cref="Point"/> itself.
+    /// </summary>
+    /// <remarks>
+    /// Most snaps are their own target: you point at the corner you want.
+    /// A tangent is not. The touch point can be a quarter of the way round
+    /// the rim from where you are pointing, so what you aim at is the
+    /// *circle* and the answer is worked out from it -- which is how every
+    /// CAD tool behaves, and the only way the snap is usable at all, since
+    /// aiming at the touch point would mean knowing where it is beforehand.
+    /// Perpendicular has the same shape: you point at the line, not at the
+    /// foot of the right angle.
+    /// </remarks>
+    public double Reach { get; init; } = double.NaN;
+
+    /// <summary>What the cursor has to be near, given a fallback.</summary>
+    public double ReachFrom(Vec2 cursor) =>
+        double.IsNaN(Reach) ? Vec2.Distance(Point, cursor) : Reach;
+
+    /// <summary>
+    /// True when the answer is somewhere other than what was pointed at.
+    /// </summary>
+    /// <remarks>
+    /// These rank below the snaps whose answer is under the cursor. Pointing
+    /// at the end of a line that happens to start on a circle should give
+    /// that end, not a tangent point a quarter of the way round the rim --
+    /// even when the rim is a hair nearer than the end is. It is the
+    /// ordering AutoCAD uses, and the reason is the same: a snap you can see
+    /// beats one that has to be worked out.
+    /// </remarks>
+    public bool IsProjected => !double.IsNaN(Reach);
+}
 
 /// <summary>Where the cursor actually went, and why.</summary>
 public readonly record struct SnapResult(Vec2 Point, SnapKind Kind)

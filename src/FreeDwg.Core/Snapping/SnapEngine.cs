@@ -174,6 +174,11 @@ public sealed class SnapEngine
 
         var best = SnapResult.Miss(cursor);
         double bestDistance = tolerance;
+        double bestPoint = double.PositiveInfinity;
+
+        // Snaps whose answer is under the cursor rank above the ones worked
+        // out from it, whatever the distances say.
+        int bestTier = int.MaxValue;
 
         foreach (int position in _nearby)
         {
@@ -191,7 +196,7 @@ public sealed class SnapEngine
 
             // Perpendicular and tangent depend on where the line is coming
             // from, so they cannot be offered by an entity on its own.
-            if (from is { } origin) AddProjected(entity, origin, wanted, tolerance);
+            if (from is { } origin) AddProjected(entity, origin, cursor, wanted, tolerance);
 
             if (wanted.HasFlag(SnapModes.Intersection)) CollectNearbyPieces(entity, position, area, tolerance);
 
@@ -199,12 +204,27 @@ public sealed class SnapEngine
             {
                 if ((wanted & ToMode(candidate.Kind)) == 0) continue;
 
-                double distance = Vec2.Distance(candidate.Point, cursor);
-                if (distance > bestDistance) continue;
+                double reach = candidate.ReachFrom(cursor);
+                if (reach > tolerance) continue;
 
-                // Strictly nearer wins, so an entity drawn later cannot steal
-                // a snap from one the cursor is sitting exactly on.
-                bestDistance = distance;
+                int tier = candidate.IsProjected ? 1 : 0;
+                if (tier > bestTier) continue;
+
+                double toPoint = Vec2.Distance(candidate.Point, cursor);
+
+                if (tier == bestTier)
+                {
+                    if (reach > bestDistance) continue;
+
+                    // Equally good aims are settled by which answer is nearer,
+                    // so an entity drawn later cannot steal a snap from one
+                    // the cursor is sitting exactly on.
+                    if (Math.Abs(reach - bestDistance) < 1e-12 && toPoint >= bestPoint) continue;
+                }
+
+                bestTier = tier;
+                bestDistance = reach;
+                bestPoint = toPoint;
                 best = new SnapResult(candidate.Point, candidate.Kind);
             }
         }
@@ -214,9 +234,15 @@ public sealed class SnapEngine
             foreach (var crossing in Crossings())
             {
                 double distance = Vec2.Distance(crossing, cursor);
-                if (distance > bestDistance) continue;
+                if (distance > tolerance) continue;
 
+                // A crossing is where it says it is, so it outranks anything
+                // worked out from elsewhere however near that one aimed.
+                if (bestTier == 0 && distance > bestDistance) continue;
+
+                bestTier = 0;
                 bestDistance = distance;
+                bestPoint = distance;
                 best = new SnapResult(crossing, SnapKind.Intersection);
             }
         }
@@ -277,7 +303,7 @@ public sealed class SnapEngine
     /// Adds the right-angle and tangent points this entity offers from a
     /// given origin, working on its curves rather than its snap points.
     /// </summary>
-    private void AddProjected(SceneEntity entity, Vec2 from, SnapModes wanted, double tolerance)
+    private void AddProjected(SceneEntity entity, Vec2 from, Vec2 cursor, SnapModes wanted, double tolerance)
     {
         bool perpendicular = wanted.HasFlag(SnapModes.Perpendicular);
         bool tangent = wanted.HasFlag(SnapModes.Tangent);
@@ -288,12 +314,18 @@ public sealed class SnapEngine
 
         foreach (var piece in _curves)
         {
+            // What the cursor is actually aiming at is the curve. The foot
+            // of a right angle, and a tangent's touch point, can both be a
+            // long way along it from where you are pointing.
+            double reach = Reach(piece, cursor);
+            if (reach > tolerance) continue;
+
             if (perpendicular)
             {
                 if (!piece.IsArc)
                 {
                     if (Projection.PerpendicularToSegment(from, piece.A, piece.B, out var foot))
-                        _candidates.Add(new SnapCandidate(foot, SnapKind.Perpendicular));
+                        _candidates.Add(new SnapCandidate(foot, SnapKind.Perpendicular) { Reach = reach });
                 }
                 else
                 {
@@ -301,7 +333,7 @@ public sealed class SnapEngine
                     Projection.PerpendicularToArc(from, piece, _feet);
 
                     foreach (var foot in _feet)
-                        _candidates.Add(new SnapCandidate(foot, SnapKind.Perpendicular));
+                        _candidates.Add(new SnapCandidate(foot, SnapKind.Perpendicular) { Reach = reach });
                 }
             }
 
@@ -312,9 +344,15 @@ public sealed class SnapEngine
             _feet.Clear();
             Projection.TangentToArc(from, piece, _feet);
 
-            foreach (var touch in _feet) _candidates.Add(new SnapCandidate(touch, SnapKind.Tangent));
+            foreach (var touch in _feet)
+                _candidates.Add(new SnapCandidate(touch, SnapKind.Tangent) { Reach = reach });
         }
     }
+
+    /// <summary>How far the cursor is from a curve piece itself.</summary>
+    private static double Reach(in CurvePiece piece, Vec2 cursor) => piece.IsArc
+        ? Distance.PointToArc(cursor, piece.Center, piece.Radius, piece.StartAngle, piece.Sweep)
+        : Distance.PointToSegment(cursor, piece.A, piece.B);
 
     /// <summary>
     /// Lines the cursor up along the polar rays out of the points it has

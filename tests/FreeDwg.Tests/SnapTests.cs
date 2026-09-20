@@ -243,6 +243,69 @@ public sealed class SnapTests
     }
 
     [Fact]
+    public void ATangentIsFoundByPointingAtTheCircleNotAtTheTouchPoint()
+    {
+        var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
+        var engine = new SnapEngine { Modes = SnapModes.Tangent };
+
+        // Drawing in from the left, and hovering the far right of the rim --
+        // nowhere near either touch point, which are up and down from there.
+        var from = new Vec2(-40, 0);
+        var result = Snap(drawing, engine, new Vec2(10.5, 0), from: from);
+
+        Assert.Equal(SnapKind.Tangent, result.Kind);
+
+        // Aiming at the touch point would mean knowing where it is first,
+        // which is the whole reason the snap exists.
+        Assert.True(Vec2.Distance(result.Point, new Vec2(10.5, 0)) > Tolerance,
+            "the touch point is nowhere near where the cursor was pointing");
+
+        Assert.Equal(10, Vec2.Distance(result.Point, Vec2.Zero), 6);
+        Assert.Equal(0.0, Vec2.Dot((result.Point - Vec2.Zero).Normalized(),
+                                   (from - result.Point).Normalized()), 6);
+    }
+
+    [Fact]
+    public void APerpendicularIsFoundByPointingAtTheLine()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(0, 0), new Vec2(100, 0)));
+        var engine = new SnapEngine { Modes = SnapModes.Perpendicular };
+
+        // Hovering the line well away from the foot, which is at x = 30.
+        var result = Snap(drawing, engine, new Vec2(90, 0.4), from: new Vec2(30, 50));
+
+        Assert.Equal(SnapKind.Perpendicular, result.Kind);
+        Assert.Equal(new Vec2(30, 0), result.Point);
+    }
+
+    [Fact]
+    public void PointingAtNothingStillFindsNoTangent()
+    {
+        var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
+        var engine = new SnapEngine { Modes = SnapModes.Tangent };
+
+        // Well off the rim: the circle is not what is being pointed at.
+        Assert.False(Snap(drawing, engine, new Vec2(40, 40), from: new Vec2(-40, 0)).Found);
+    }
+
+    [Fact]
+    public void AnEndpointOnTheRimBeatsATangentThroughIt()
+    {
+        var drawing = WithEntities(
+            new SCircle(Vec2.Zero, 10),
+            new SLine(new Vec2(10, 0), new Vec2(40, 0)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Endpoint | SnapModes.Tangent };
+
+        // Both are equally well aimed at; the one whose answer is under the
+        // cursor is the one that was meant.
+        var result = Snap(drawing, engine, new Vec2(10.2, 0.2), from: new Vec2(-40, 0));
+
+        Assert.Equal(SnapKind.Endpoint, result.Kind);
+        Assert.Equal(new Vec2(10, 0), result.Point);
+    }
+
+    [Fact]
     public void ThereIsNoTangentFromInsideTheCircle()
     {
         var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
@@ -376,6 +439,24 @@ public sealed class SnapTests
         var engine = new SnapEngine { Modes = SnapModes.Endpoint };
 
         Assert.False(Snap(drawing, engine, new Vec2(40.3, 0.3)).Found);
+    }
+
+    [Fact]
+    public void ACrossingBeatsATangentAimedJustAsWell()
+    {
+        var drawing = WithEntities(
+            new SCircle(Vec2.Zero, 10),
+            new SLine(new Vec2(-20, 0), new Vec2(20, 0)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection | SnapModes.Tangent };
+
+        // The line cuts the rim at (10, 0), and the cursor is by it. The
+        // tangent aims at the same circle just as closely, but its answer is
+        // somewhere else entirely.
+        var result = Snap(drawing, engine, new Vec2(10.3, 0.3), from: new Vec2(-40, 30));
+
+        Assert.Equal(SnapKind.Intersection, result.Kind);
+        Assert.Equal(10, result.Point.X, 6);
     }
 
     // ---- tracking -------------------------------------------------------------
