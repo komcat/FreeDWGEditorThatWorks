@@ -389,6 +389,23 @@ correctly as an endpoint and once under a marker meaning something else. The
 cost is that a polyline crossing itself offers nothing, which is rare and far
 less confusing than the alternative.
 
+**Polar tracking** then replaced the hand-rolled horizontal-and-vertical
+alignment with rays at a settable angle, which turned out to be one
+mechanism serving two features: tracking runs the rays out of acquired
+points, polar runs them out of the point the line started at, and they differ
+only in where the rays begin. A crossing between one of each -- a known
+height met at a known angle -- falls out for free and is the most useful
+thing in the whole arrangement.
+
+Ortho and polar are mutually exclusive in the toolbar. Ortho *forces* the
+direction and polar only *attracts* to it, so with both on polar could never
+be the answer, and a lit button that can never do anything is the same bug as
+the two-modes-at-once one.
+
+`Polar.Direction` cleans its axis components to exact zero. Straight out of a
+cosine a vertical ray carries 6e-17 of sideways drift per unit of length, and
+snapping exists precisely so that points land exactly.
+
 Still to do: polygon, which needs somewhere to ask for a side count; text,
 which needs an editor; offset, which needs real curve offsetting; array,
 which needs row and column counts; and explode.

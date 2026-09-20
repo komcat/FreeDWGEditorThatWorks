@@ -1,4 +1,4 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 
 namespace FreeDwg.Core.Snapping;
 
@@ -83,5 +83,86 @@ public static class Ortho
         return Math.Abs(dx) >= Math.Abs(dy)
             ? new Vec2(to.X, from.Y)
             : new Vec2(from.X, to.Y);
+    }
+}
+
+/// <summary>
+/// Rays at regular angles out of a point, and where they cross.
+/// </summary>
+/// <remarks>
+/// The generalisation of ortho: ortho is these rays at ninety degrees, with
+/// the point forced onto one. Polar attracts rather than forces, so the
+/// cursor is free between the angles and only jumps when it is close to one.
+/// </remarks>
+public static class Polar
+{
+    /// <summary>Forty-five degrees: the diagonals as well as the axes.</summary>
+    public const double DefaultIncrement = 45;
+
+    /// <summary>
+    /// The smallest increment offered. Below this the rays are closer
+    /// together than the pick tolerance at any useful zoom, so every one of
+    /// them would be in reach at once and none would mean anything.
+    /// </summary>
+    public const double MinIncrement = 5;
+
+    public static int Count(double increment) =>
+        (int)Math.Round(360.0 / Math.Max(increment, MinIncrement));
+
+    public static Vec2 Direction(double increment, int step)
+    {
+        double radians = step * Math.Max(increment, MinIncrement) * Math.PI / 180.0;
+
+        // Cleaned on the axes. cos(pi/2) is 6e-17 rather than nought, and a
+        // vertical ray carrying that drifts sideways by a rounding step for
+        // every unit of its length. Snapping exists to make points land
+        // exactly, and the axes are the case people lean on hardest.
+        double x = Math.Cos(radians);
+        double y = Math.Sin(radians);
+
+        return new Vec2(Math.Abs(x) < 1e-12 ? 0 : x, Math.Abs(y) < 1e-12 ? 0 : y);
+    }
+
+    /// <summary>
+    /// The point on the ray from <paramref name="origin"/> nearest the
+    /// cursor, when the cursor is within <paramref name="tolerance"/> of it.
+    /// </summary>
+    /// <remarks>
+    /// Only forwards along the ray. Backwards is a different angle, and with
+    /// an increment that divides 360 it is already one of the other rays, so
+    /// allowing it would offer the same line twice.
+    /// </remarks>
+    public static bool Project(Vec2 origin, Vec2 direction, Vec2 cursor, double tolerance,
+        out Vec2 point, out double offset)
+    {
+        point = origin;
+        offset = double.PositiveInfinity;
+
+        Vec2 reach = cursor - origin;
+        double along = Vec2.Dot(reach, direction);
+        if (along <= 0) return false;
+
+        point = origin + direction * along;
+        offset = Vec2.Distance(point, cursor);
+
+        return offset <= tolerance;
+    }
+
+    /// <summary>Where two rays cross, if they do and it is ahead on both.</summary>
+    public static bool Cross(Vec2 originA, Vec2 directionA, Vec2 originB, Vec2 directionB, out Vec2 point)
+    {
+        point = originA;
+
+        double denominator = Vec2.Cross(directionA, directionB);
+        if (Math.Abs(denominator) < 1e-12) return false;
+
+        Vec2 gap = originB - originA;
+        double alongA = Vec2.Cross(gap, directionB) / denominator;
+        double alongB = Vec2.Cross(gap, directionA) / denominator;
+
+        if (alongA <= 0 || alongB <= 0) return false;
+
+        point = originA + directionA * alongA;
+        return true;
     }
 }

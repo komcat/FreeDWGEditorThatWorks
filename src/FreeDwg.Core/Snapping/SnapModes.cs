@@ -43,10 +43,16 @@ public enum SnapModes
     /// <summary>Where two objects cross.</summary>
     Intersection = 1 << 8,
 
+    /// <summary>
+    /// Rays at regular angles out of the point being drawn from, so a line
+    /// can be run at thirty degrees without measuring one.
+    /// </summary>
+    Polar = 1 << 9,
+
     /// <summary>Everything that belongs to an object, which is everything but the grid.</summary>
     Objects = Endpoint | Midpoint | Center | Quadrant | Perpendicular | Tangent | Intersection,
 
-    All = Objects | Grid | Tracking,
+    All = Objects | Grid | Tracking | Polar,
 }
 
 /// <summary>
@@ -70,6 +76,9 @@ public enum SnapKind
 
     /// <summary>Lined up with a point the cursor rested on earlier.</summary>
     Tracking,
+
+    /// <summary>Running at one of the polar angles from the last point.</summary>
+    Polar,
 }
 
 /// <summary>One point an entity is offering to snap to.</summary>

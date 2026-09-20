@@ -39,6 +39,8 @@
 
     <Geometry x:Key="Icon.Grid">M3,3 H21 V21 H3 Z M9,3 V21 M15,3 V21 M3,9 H21 M3,15 H21</Geometry>
 
+    <Geometry x:Key="Icon.Polar">M3,20 H21 M3,20 L17,6 M14,20 A11,11 0 0 0 10.8,12.2</Geometry>
+
     <Geometry x:Key="Icon.Ortho">M4,20 H20 M4,20 V4 M4,15 H9 V20</Geometry>
 
     <Geometry x:Key="Icon.SnapEndpoint">M4,20 L15,9 M12,6 H20 V14 H12 Z</Geometry>

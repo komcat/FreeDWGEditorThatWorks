@@ -86,6 +86,20 @@ public static class PropertySource
                 return true;
             }));
 
+        rows.Add(new PropertyRow(Settings, "Polar angle",
+            "The angle between the rays polar tracking attracts to, in degrees. Forty-five gives "
+            + "the diagonals as well as the axes; fifteen and thirty are the other common answers.",
+            PropertyRow.Number(canvas.Snapping.PolarAngle),
+            text =>
+            {
+                if (!PropertyRow.TryNumber(text, out double value) || value < Polar.MinIncrement || value > 180)
+                    return false;
+
+                canvas.Snapping.PolarAngle = value;
+                canvas.Redraw();
+                return true;
+            }));
+
         rows.Add(new PropertyRow(Settings, "Grid",
             "Shows the drawing grid, and snaps to it when nothing else is near the cursor.",
             PropertyRow.Flag(canvas.Snapping.Grid.IsVisible),

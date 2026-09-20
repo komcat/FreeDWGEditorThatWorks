@@ -316,6 +316,15 @@ public partial class MainWindow : Window
 
     private void OnSnapToggled(object sender, RoutedEventArgs e)
     {
+        // Ortho forces the direction and polar only attracts to it, so with
+        // both on polar can never be the answer. Rather than leave a lit
+        // button that does nothing, picking one drops the other.
+        if (ReferenceEquals(sender, OrthoToggle) && OrthoToggle.IsChecked == true)
+            PolarToggle.IsChecked = false;
+
+        if (ReferenceEquals(sender, PolarToggle) && PolarToggle.IsChecked == true)
+            OrthoToggle.IsChecked = false;
+
         var modes = SnapModes.None;
 
         if (EndpointSnapToggle.IsChecked == true) modes |= SnapModes.Endpoint;
@@ -326,6 +335,7 @@ public partial class MainWindow : Window
         if (TangentSnapToggle.IsChecked == true) modes |= SnapModes.Tangent;
         if (IntersectionSnapToggle.IsChecked == true) modes |= SnapModes.Intersection;
         if (TrackingSnapToggle.IsChecked == true) modes |= SnapModes.Tracking;
+        if (PolarToggle.IsChecked == true) modes |= SnapModes.Polar;
         if (GridToggle.IsChecked == true) modes |= SnapModes.Grid;
 
         Canvas.Snapping.Modes = modes;

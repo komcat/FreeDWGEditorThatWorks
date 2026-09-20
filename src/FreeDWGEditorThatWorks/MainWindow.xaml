@@ -59,6 +59,9 @@
                 <ToggleButton x:Name="OrthoToggle" Style="{StaticResource ToolCheck}"
                               Tag="{StaticResource Icon.Ortho}" Click="OnSnapToggled"
                               ToolTip="Ortho  -  hold each new point square with the last one" />
+                <ToggleButton x:Name="PolarToggle" Style="{StaticResource ToolCheck}"
+                              Tag="{StaticResource Icon.Polar}" Click="OnSnapToggled"
+                              ToolTip="Polar  -  attract each new point to regular angles from the last one" />
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 

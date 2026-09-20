@@ -18,7 +18,18 @@ public sealed class SnapEngine
     public SnapModes Modes { get; set; } = SnapModes.Endpoint | SnapModes.Midpoint | SnapModes.Center;
 
     /// <summary>Whether points are squared up with the previous one.</summary>
+    /// <remarks>
+    /// A constraint rather than an attraction, so it takes precedence over
+    /// polar tracking out of the same point: with ortho on, the answer is
+    /// always on an axis and polar has nothing left to offer.
+    /// </remarks>
     public bool Ortho { get; set; }
+
+    /// <summary>
+    /// The angle between polar rays, in degrees. Forty-five gives the
+    /// diagonals as well as the axes; fifteen is the other common answer.
+    /// </summary>
+    public double PolarAngle { get; set; } = Polar.DefaultIncrement;
 
     public Grid Grid { get; } = new();
 
@@ -33,6 +44,8 @@ public sealed class SnapEngine
     private readonly List<CurvePiece> _pieces = new();
     private readonly List<int> _owners = new();
     private readonly List<Vec2> _crossings = new();
+    private readonly List<Vec2> _origins = new();
+    private readonly List<SnapKind> _originKinds = new();
 
     /// <summary>
     /// A ceiling on the pieces considered for crossings. Pairing them is
@@ -99,11 +112,10 @@ public sealed class SnapEngine
     {
         if (FindObjectSnap(layout, layers, cursor, tolerance, from) is { Found: true } hit) return hit;
 
-        // Tracking sits under the object snaps and over ortho: it is a
-        // deliberate alignment with something real, where ortho is only a
+        // Alignment sits under the object snaps and over ortho: it is a
+        // deliberate line-up with something real, where ortho is only a
         // constraint on the direction of travel.
-        if (Modes.HasFlag(SnapModes.Tracking) && TryTrack(cursor, tolerance) is { Found: true } tracked)
-            return tracked;
+        if (TryAlign(cursor, tolerance, from) is { Found: true } aligned) return aligned;
 
         if (Ortho && from is { } previous) return SnapResult.Miss(Snapping.Ortho.Constrain(previous, cursor));
 
@@ -285,47 +297,86 @@ public sealed class SnapEngine
     }
 
     /// <summary>
-    /// Lines the cursor up with a point it rested on earlier: level with it,
-    /// directly above it, or where two such lines cross.
+    /// Lines the cursor up along the polar rays out of the points it has
+    /// rested on, and out of the point being drawn from.
     /// </summary>
-    private SnapResult TryTrack(Vec2 cursor, double tolerance)
+    /// <remarks>
+    /// One mechanism for two features. Tracking runs the rays out of acquired
+    /// points; polar runs them out of the point the line started at. They
+    /// differ only in where the rays begin, so a crossing between one of each
+    /// falls out for free -- and that crossing, a known height met at a known
+    /// angle, is the most useful thing here.
+    /// </remarks>
+    private SnapResult TryAlign(Vec2 cursor, double tolerance, Vec2? from)
     {
-        if (_tracked.Count == 0) return SnapResult.Miss(cursor);
+        _origins.Clear();
+        _originKinds.Clear();
 
-        // A crossing first: it pins both coordinates and is what someone
-        // reaching for the corner of two existing features actually wants.
-        foreach (var across in _tracked)
+        if (Modes.HasFlag(SnapModes.Tracking))
         {
-            if (Math.Abs(cursor.Y - across.Y) > tolerance) continue;
-
-            foreach (var up in _tracked)
+            foreach (var point in _tracked)
             {
-                if (Math.Abs(cursor.X - up.X) > tolerance) continue;
+                _origins.Add(point);
+                _originKinds.Add(SnapKind.Tracking);
+            }
+        }
 
-                return new SnapResult(new Vec2(up.X, across.Y), SnapKind.Tracking)
+        // Ortho already pins the direction out of this point, so polar has
+        // nothing left to say about it.
+        if (Modes.HasFlag(SnapModes.Polar) && !Ortho && from is { } start)
+        {
+            _origins.Add(start);
+            _originKinds.Add(SnapKind.Polar);
+        }
+
+        if (_origins.Count == 0) return SnapResult.Miss(cursor);
+
+        int rays = Polar.Count(PolarAngle);
+
+        // A crossing first: it pins the point outright, where a single ray
+        // leaves it free to slide along.
+        for (int a = 0; a < _origins.Count; a++)
+        {
+            for (int b = a + 1; b < _origins.Count; b++)
+            {
+                for (int i = 0; i < rays; i++)
                 {
-                    Guides = ReferenceEquals(across, up) ? [across] : [across, up],
-                };
+                    for (int j = 0; j < rays; j++)
+                    {
+                        if (!Polar.Cross(_origins[a], Polar.Direction(PolarAngle, i),
+                                _origins[b], Polar.Direction(PolarAngle, j), out var crossing))
+                        {
+                            continue;
+                        }
+
+                        if (Vec2.Distance(crossing, cursor) > tolerance) continue;
+
+                        return new SnapResult(crossing, SnapKind.Tracking)
+                        {
+                            Guides = [_origins[a], _origins[b]],
+                        };
+                    }
+                }
             }
         }
 
         var best = SnapResult.Miss(cursor);
         double nearest = tolerance;
 
-        foreach (var point in _tracked)
+        for (int origin = 0; origin < _origins.Count; origin++)
         {
-            double horizontal = Math.Abs(cursor.Y - point.Y);
-            if (horizontal < nearest)
+            for (int i = 0; i < rays; i++)
             {
-                nearest = horizontal;
-                best = new SnapResult(new Vec2(cursor.X, point.Y), SnapKind.Tracking) { Guides = [point] };
-            }
+                if (!Polar.Project(_origins[origin], Polar.Direction(PolarAngle, i),
+                        cursor, tolerance, out var point, out double offset))
+                {
+                    continue;
+                }
 
-            double vertical = Math.Abs(cursor.X - point.X);
-            if (vertical < nearest)
-            {
-                nearest = vertical;
-                best = new SnapResult(new Vec2(point.X, cursor.Y), SnapKind.Tracking) { Guides = [point] };
+                if (offset >= nearest) continue;
+
+                nearest = offset;
+                best = new SnapResult(point, _originKinds[origin]) { Guides = [_origins[origin]] };
             }
         }
 
@@ -342,6 +393,7 @@ public sealed class SnapEngine
         SnapKind.Perpendicular => SnapModes.Perpendicular,
         SnapKind.Tangent => SnapModes.Tangent,
         SnapKind.Intersection => SnapModes.Intersection,
+        SnapKind.Polar => SnapModes.Polar,
         SnapKind.Tracking => SnapModes.Tracking,
         _ => SnapModes.None,
     };

@@ -497,6 +497,147 @@ public sealed class SnapTests
         Assert.Equal(new Vec2(90, 40), result.Point);
     }
 
+    // ---- polar ----------------------------------------------------------------
+
+    [Fact]
+    public void APointNearAPolarRayIsPulledOntoIt()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45 };
+
+        // Heading out at roughly forty-five degrees from the origin.
+        var result = Snap(drawing, engine, new Vec2(50, 51), from: Vec2.Zero);
+
+        Assert.Equal(SnapKind.Polar, result.Kind);
+        Assert.Equal(result.Point.X, result.Point.Y, 9);
+        Assert.Equal(Vec2.Zero, Assert.Single(result.Guides));
+    }
+
+    [Fact]
+    public void APointBetweenTheRaysIsLeftAlone()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45 };
+
+        // Twenty-odd degrees: not near a ray at this distance, and polar
+        // attracts rather than forcing, so the cursor stays put.
+        var cursor = new Vec2(100, 40);
+
+        Assert.False(Snap(drawing, engine, cursor, from: Vec2.Zero).Found);
+    }
+
+    [Theory]
+    // Forty-five degrees is a ray when the increment divides it and not
+    // otherwise: at thirty the nearest rays are fifteen degrees away, which
+    // at this distance is far outside the tolerance.
+    [InlineData(45.0, true)]
+    [InlineData(90.0, false)]
+    [InlineData(30.0, false)]
+    public void TheAngleSettingDecidesWhichRaysExist(double increment, bool hasDiagonal)
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = increment };
+
+        var result = Snap(drawing, engine, new Vec2(50, 50), from: Vec2.Zero);
+
+        Assert.Equal(hasDiagonal, result.Found);
+    }
+
+    [Fact]
+    public void ThirtyDegreesIsAvailableWhenTheIncrementSaysSo()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 30 };
+
+        // tan(30) = 0.5774, so 100 across is 57.74 up.
+        var result = Snap(drawing, engine, new Vec2(100, 57), from: Vec2.Zero);
+
+        Assert.Equal(SnapKind.Polar, result.Kind);
+        Assert.Equal(30.0, result.Point.Angle() * 180 / Math.PI, 6);
+    }
+
+    [Fact]
+    public void AVerticalPolarRayIsExactlyVertical()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45 };
+
+        // Just off the vertical ray that runs up out of (20, 0).
+        var result = Snap(drawing, engine, new Vec2(20.4, 500), from: new Vec2(20, 0));
+
+        // Straight through a cosine this drifts sideways by a rounding step
+        // for every unit of length, and snapping exists to make points land
+        // exactly.
+        Assert.Equal(20.0, result.Point.X);
+    }
+
+    [Fact]
+    public void PolarNeedsAPointToRunOutOf()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar };
+
+        // Nothing picked yet, so there is no direction to be at an angle to.
+        Assert.False(Snap(drawing, engine, new Vec2(50, 50)).Found);
+    }
+
+    [Fact]
+    public void OrthoTakesPrecedenceOverPolarOutOfTheSamePoint()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45, Ortho = true };
+
+        // On the forty-five degree ray, but ortho forces rather than
+        // attracts, so it has the last word.
+        var result = Snap(drawing, engine, new Vec2(50, 50), from: Vec2.Zero);
+
+        Assert.False(result.Found);
+        Assert.Equal(new Vec2(50, 0), result.Point);
+    }
+
+    [Fact]
+    public void ATrackedPointAndTheDrawingPointCrossAtAKnownCorner()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine
+        {
+            Modes = SnapModes.Tracking | SnapModes.Polar,
+            PolarAngle = 45,
+        };
+
+        // A height acquired from an existing feature, met by a line running
+        // up at forty-five degrees: the corner of the two is at (40, 40).
+        engine.Acquire(new Vec2(90, 40));
+
+        var result = Snap(drawing, engine, new Vec2(40.5, 40.4), from: Vec2.Zero);
+
+        Assert.Equal(new Vec2(40, 40), result.Point);
+        Assert.Equal(2, result.Guides.Count);
+    }
+
+    [Fact]
+    public void TrackingRaysFollowThePolarAngleToo()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking, PolarAngle = 45 };
+
+        engine.Acquire(new Vec2(10, 10));
+
+        // Up and to the right of the acquired point, on its diagonal.
+        var result = Snap(drawing, engine, new Vec2(60, 59), from: null);
+
+        Assert.Equal(SnapKind.Tracking, result.Kind);
+        Assert.Equal(result.Point.X - 10, result.Point.Y - 10, 9);
+    }
+
+    [Fact]
+    public void AnAbsurdlySmallAngleIsClampedRatherThanFillingTheScreenWithRays()
+    {
+        // Below the floor every ray is within reach at once, so none of them
+        // would mean anything.
+        Assert.Equal(Polar.Count(Polar.MinIncrement), Polar.Count(0.0001));
+    }
+
     // ---- ortho ------------------------------------------------------------
 
     [Theory]
