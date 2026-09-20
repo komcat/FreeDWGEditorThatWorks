@@ -1,0 +1,130 @@
+using System.Globalization;
+
+namespace FreeDwg.Core.Scene;
+
+/// <summary>What one drawing unit means.</summary>
+public enum DrawingUnits
+{
+    Millimetres,
+    Metres,
+    Inches,
+    Feet,
+}
+
+/// <summary>
+/// Turning lengths into text and back, in whatever the drawing is measured
+/// in.
+/// </summary>
+/// <remarks>
+/// A coordinate in the scene is a bare number, and the unit says what that
+/// number counts -- exactly as DWG does it, where the file holds numbers and
+/// the INSUNITS header says what they are. Changing the setting therefore
+/// re-labels the drawing rather than rescaling it: a line 50 long becomes 50
+/// inches instead of 50 millimetres, and does not move.
+/// <para>
+/// The one place the conversion factors matter is typing. A length entered
+/// as 3ft in a millimetre drawing has to arrive as 914.4, because that is
+/// what three feet is in the numbers this drawing counts in.
+/// </para>
+/// </remarks>
+public static class Units
+{
+    /// <summary>How many millimetres one of these is.</summary>
+    public static double InMillimetres(DrawingUnits units) => units switch
+    {
+        DrawingUnits.Metres => 1000.0,
+        DrawingUnits.Inches => 25.4,
+        DrawingUnits.Feet => 304.8,
+        _ => 1.0,
+    };
+
+    public static string Suffix(DrawingUnits units) => units switch
+    {
+        DrawingUnits.Metres => "m",
+        DrawingUnits.Inches => "in",
+        DrawingUnits.Feet => "ft",
+        _ => "mm",
+    };
+
+    /// <summary>The name shown in a settings list.</summary>
+    public static string Name(DrawingUnits units) => units switch
+    {
+        DrawingUnits.Metres => "Metres (m)",
+        DrawingUnits.Inches => "Inches (in)",
+        DrawingUnits.Feet => "Feet (ft)",
+        _ => "Millimetres (mm)",
+    };
+
+    public static IReadOnlyList<DrawingUnits> All { get; } =
+    [
+        DrawingUnits.Millimetres, DrawingUnits.Metres, DrawingUnits.Inches, DrawingUnits.Feet,
+    ];
+
+    public static bool TryParseName(string text, out DrawingUnits units)
+    {
+        foreach (var candidate in All)
+        {
+            if (!string.Equals(Name(candidate), text.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
+
+            units = candidate;
+            return true;
+        }
+
+        units = DrawingUnits.Millimetres;
+        return false;
+    }
+
+    public static string Format(double value, DrawingUnits units, int decimals) =>
+        value.ToString("0." + new string('#', Math.Clamp(decimals, 0, 12)), CultureInfo.InvariantCulture);
+
+    /// <summary>With the unit on the end, for a readout.</summary>
+    public static string Describe(double value, DrawingUnits units, int decimals) =>
+        $"{Format(value, units, decimals)} {Suffix(units)}";
+
+    /// <summary>
+    /// Reads a typed length as a number of drawing units.
+    /// </summary>
+    /// <remarks>
+    /// A bare number is already in the drawing's units. A number with a unit
+    /// on it is converted, so 3ft in a millimetre drawing arrives as 914.4 --
+    /// which is how anyone working to a drawing in one unit and a datasheet
+    /// in another expects to be able to type.
+    /// </remarks>
+    public static bool TryParseLength(string text, DrawingUnits document, out double value)
+    {
+        value = 0;
+
+        string trimmed = text.Trim();
+        if (trimmed.Length == 0) return false;
+
+        var typed = document;
+        foreach (var (suffix, units) in Suffixes)
+        {
+            if (!trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+
+            typed = units;
+            trimmed = trimmed[..^suffix.Length].Trim();
+            break;
+        }
+
+        if (!double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
+            return false;
+
+        value = number * InMillimetres(typed) / InMillimetres(document);
+        return true;
+    }
+
+    /// <summary>
+    /// Longest first, so that "mm" is not read as "m" with a stray letter in
+    /// front of it.
+    /// </summary>
+    private static readonly (string Suffix, DrawingUnits Units)[] Suffixes =
+    [
+        ("mm", DrawingUnits.Millimetres),
+        ("in", DrawingUnits.Inches),
+        ("ft", DrawingUnits.Feet),
+        ("\"", DrawingUnits.Inches),
+        ("'", DrawingUnits.Feet),
+        ("m", DrawingUnits.Metres),
+    ];
+}

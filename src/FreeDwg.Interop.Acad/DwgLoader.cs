@@ -1,4 +1,4 @@
-using ACadSharp;
+﻿using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
 using ACadSharp.Tables;
@@ -85,6 +85,8 @@ public static class DwgLoader
 
         public Drawing Run()
         {
+            ConvertUnits();
+
             ConvertLinetypes();
             _styles = new StyleResolver(_linetypeByHandle, _document.Header?.LineTypeScale ?? 1.0);
 
@@ -98,6 +100,27 @@ public static class DwgLoader
                 _diagnostics.FontSubstituted(shx, substitute);
 
             return _drawing;
+        }
+
+        /// <summary>
+        /// Takes the drawing's unit from the file's INSUNITS header.
+        /// </summary>
+        /// <remarks>
+        /// The scene holds bare numbers, so this changes nothing about the
+        /// geometry; it says what those numbers count, which is what lets a
+        /// length typed as 2in land correctly in a drawing built in inches.
+        /// Anything outside the four we model -- and Unitless, which real
+        /// files do carry -- falls back to millimetres rather than guessing.
+        /// </remarks>
+        private void ConvertUnits()
+        {
+            _drawing.Units = _document.Header?.InsUnits switch
+            {
+                ACadSharp.Types.Units.UnitsType.Meters => DrawingUnits.Metres,
+                ACadSharp.Types.Units.UnitsType.Inches => DrawingUnits.Inches,
+                ACadSharp.Types.Units.UnitsType.Feet => DrawingUnits.Feet,
+                _ => DrawingUnits.Millimetres,
+            };
         }
 
         private void ConvertLinetypes()

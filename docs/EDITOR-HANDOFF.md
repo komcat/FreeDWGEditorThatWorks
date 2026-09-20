@@ -341,8 +341,28 @@ a callback rather than returning a colour because the shell has to *defer*
 the dialog: opening a modal window while the grid is still committing the
 cell it was picked in is a way to wedge WPF's input system.
 
-This is also where real numeric entry should grow from: it is the only place
-in the app that takes a typed figure. The figure itself lives on the canvas
+**Numeric entry arrived** with the length overlay. While a tool is picking,
+a box beside the cursor shows how long the run is; typing a digit opens it
+and Enter places the point at that distance, keeping the direction the cursor
+is pointing in. Direction from the mouse and length from the keyboard is how
+CAD has always taken a measured line, and it needs no angle field of its own
+because polar tracking already sets the angle exactly.
+
+The canvas keeps the keyboard and hands typing over only when it is plainly
+a measurement, so Escape, Enter and Delete keep reaching the tool. Focusing
+the box up front would take those keys away for the whole of every draw.
+
+**Units** are `Drawing.Units`, read from the file's INSUNITS header and
+defaulting to millimetres. A coordinate is a bare number and the unit says
+what it counts, so changing it relabels the drawing rather than rescaling it
+-- which is what INSUNITS means and what the settings dialog says on its
+face. The one place conversion happens is typing: `3ft` in a millimetre
+drawing has to arrive as 914.4.
+
+`ResolvePoint` sets the current aim as well as returning it. It used not to,
+which left the method half doing its job -- anything calling it directly got
+the answer while the preview, the length readout and a typed length all still
+looked at the previous position. The figure itself lives on the canvas
 as `CornerRadius`, not on the tool: it was copied into the tool at
 construction *and* pushed in again on change, which is two places to forget
 and exactly how a setting ends up silently doing nothing. The canvas applies

@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
+using FreeDwg.Core.Scene;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Tools;
 using FreeDWGEditorThatWorks.Controls;
@@ -70,7 +71,15 @@ public partial class MainWindow : Window
         ];
 
         Canvas.CursorMoved += (_, world) =>
-            CoordinateText.Text = $"X {world.X,12:0.###}   Y {world.Y,12:0.###}";
+        {
+            var drawing = Canvas.Drawing;
+            var units = drawing?.Units ?? DrawingUnits.Millimetres;
+            int decimals = drawing?.LinearPrecision ?? 3;
+
+            CoordinateText.Text =
+                $"X {Units.Format(world.X, units, decimals),10}   "
+                + $"Y {Units.Format(world.Y, units, decimals),10}   {Units.Suffix(units)}";
+        };
 
         Canvas.SelectionChanged += (_, _) =>
         {
@@ -86,7 +95,11 @@ public partial class MainWindow : Window
             SyncModeButtons();
             UpdateStatus();
             RebuildProperties();
+            UpdateLengthOverlay();
         };
+
+        Canvas.PendingPointChanged += (_, _) => UpdateLengthOverlay();
+        Canvas.LengthTypingStarted += (_, typed) => StartTypingLength(typed);
         Canvas.DrawingEdited += (_, _) =>
         {
             if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
@@ -491,6 +504,96 @@ public partial class MainWindow : Window
     }
 
     private void OnZoomExtentsClick(object sender, RoutedEventArgs e) => Canvas.ZoomExtents();
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        new DocumentSettingsWindow(drawing, () =>
+        {
+            RebuildProperties();
+            UpdateStatus();
+            UpdateLengthOverlay();
+        })
+        { Owner = this }.ShowDialog();
+    }
+
+    // ---- the length overlay ------------------------------------------------
+
+    /// <summary>
+    /// Shows the length of the run being drawn, beside the cursor.
+    /// </summary>
+    /// <remarks>
+    /// Left alone while it is being typed into: overwriting what someone is
+    /// halfway through entering, twenty times a second as the mouse moves,
+    /// would make it impossible to use.
+    /// </remarks>
+    private void UpdateLengthOverlay()
+    {
+        if (!_ready) return;
+
+        if (Canvas.PendingLength is not { } length || Canvas.Drawing is not { } drawing)
+        {
+            LengthOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        LengthOverlay.Visibility = Visibility.Visible;
+        LengthUnit.Text = Units.Suffix(drawing.Units);
+
+        if (!LengthBox.IsKeyboardFocusWithin)
+            LengthBox.Text = Units.Format(length, drawing.Units, drawing.LinearPrecision);
+
+        // Just below and right of the cursor, clear of the crosshair and of
+        // the snap marker sitting on it.
+        var at = Canvas.Camera.WorldToScreen(Canvas.PendingPoint);
+        LengthOverlay.Margin = new Thickness(at.X + 18, at.Y + 18, 0, 0);
+    }
+
+    private void StartTypingLength(string typed)
+    {
+        UpdateLengthOverlay();
+
+        LengthBox.Text = typed;
+        LengthBox.CaretIndex = LengthBox.Text.Length;
+        LengthBox.Focus();
+    }
+
+    private void OnLengthKey(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter:
+                CommitTypedLength();
+                e.Handled = true;
+                return;
+
+            case Key.Escape:
+                // Back to the drawing, with the tool still running: only the
+                // half-typed number is abandoned.
+                Canvas.Focus();
+                UpdateLengthOverlay();
+                e.Handled = true;
+                return;
+        }
+    }
+
+    private void CommitTypedLength()
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        if (!Units.TryParseLength(LengthBox.Text, drawing.Units, out double length) || length <= 0)
+        {
+            StatusText.Text = $"'{LengthBox.Text}' is not a length. Try 50, or 2in, or 0.5m.";
+            return;
+        }
+
+        // The canvas takes the keyboard back so that Escape, Enter and the
+        // next digit all reach the tool rather than the box.
+        Canvas.Focus();
+        Canvas.PlaceTypedLength(length);
+        UpdateLengthOverlay();
+    }
 
     private void OnZoomWindowToggled(object sender, RoutedEventArgs e)
     {

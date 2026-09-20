@@ -39,6 +39,19 @@ public sealed class Drawing
     public string? SourcePath { get; set; }
 
     /// <summary>
+    /// What one drawing unit means. Millimetres unless a file says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Metadata, not a scale: the coordinates are bare numbers and this says
+    /// what they count, which is how DWG's INSUNITS works. Changing it
+    /// re-labels the drawing rather than resizing it.
+    /// </remarks>
+    public DrawingUnits Units { get; set; } = DrawingUnits.Millimetres;
+
+    /// <summary>Decimal places shown for a length.</summary>
+    public int LinearPrecision { get; set; } = 3;
+
+    /// <summary>
     /// The layer new entities are created on. Index into <see cref="Layers"/>;
     /// out of range reads as layer 0, which is the one every DWG has.
     /// </summary>

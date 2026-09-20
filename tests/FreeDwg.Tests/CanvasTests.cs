@@ -422,6 +422,96 @@ public sealed class CanvasTests
                                    (from - tangent).Normalized()), 6);
     }
 
+    // ---- typed lengths ---------------------------------------------------
+
+    [Fact]
+    public void ATypedLengthRunsTheDistanceAskedForInTheCursorsDirection()
+    {
+        var end = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.None;
+
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+
+            // Aimed up and to the right, roughly but not exactly at 45.
+            canvas.ResolvePoint(new Vec2(83, 91));
+            canvas.PlaceTypedLength(100);
+
+            return ((SLine)drawing.Entities[0]).End;
+        });
+
+        // The length is exactly what was asked for, and the direction is the
+        // one the cursor was pointing in.
+        Assert.Equal(100, Vec2.Distance(Vec2.Zero, end), 9);
+        Assert.Equal(new Vec2(83, 91).Angle(), end.Angle(), 9);
+    }
+
+    [Fact]
+    public void ATypedLengthFollowsWhateverSnappingSetTheAngleTo()
+    {
+        var end = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.Polar;
+            canvas.Snapping.PolarAngle = 45;
+            canvas.Snapping.PolarRelative = false;
+
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+
+            // Near the forty-five degree ray, so polar pins the angle and
+            // the keyboard gives the length. That pairing is the whole point.
+            canvas.ResolvePoint(new Vec2(60, 59));
+            canvas.PlaceTypedLength(100);
+
+            return ((SLine)drawing.Entities[0]).End;
+        });
+
+        Assert.Equal(100, Vec2.Distance(Vec2.Zero, end), 9);
+        Assert.Equal(45.0, end.Angle() * 180 / Math.PI, 6);
+    }
+
+    [Fact]
+    public void ATypedLengthNeedsADirectionToRunIn()
+    {
+        var (placed, count) = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.None;
+
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(10, 10));
+
+            // Cursor still sitting on the point it would run from: there is
+            // no direction, and no sensible answer to give.
+            canvas.ResolvePoint(new Vec2(10, 10));
+
+            return (canvas.PlaceTypedLength(50), drawing.Entities.Count);
+        });
+
+        Assert.False(placed);
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public void ThereIsNoPendingLengthUntilAToolHasAPoint()
+    {
+        var (idle, drawing_) = OnCanvas((canvas, drawing) =>
+        {
+            bool none = canvas.PendingLength is null;
+
+            canvas.UseTool(new LineTool());
+            bool stillNone = canvas.PendingLength is null;
+
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            canvas.ResolvePoint(new Vec2(30, 40));
+
+            return (none && stillNone, canvas.PendingLength);
+        });
+
+        Assert.True(idle);
+        Assert.Equal(50, drawing_!.Value, 9);
+    }
+
     // ---- one mode at a time ---------------------------------------------
 
     [Fact]

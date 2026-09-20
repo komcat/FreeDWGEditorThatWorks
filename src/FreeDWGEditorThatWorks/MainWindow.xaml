@@ -36,6 +36,11 @@
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 
+                <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Settings}"
+                        Click="OnSettingsClick" ToolTip="Drawing settings  -  units and decimal places" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
                 <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.ZoomExtents}"
                         Click="OnZoomExtentsClick" ToolTip="Zoom extents  -  fit the whole drawing in the viewport" />
                 <ToggleButton x:Name="ZoomWindowToggle" Style="{StaticResource ToolCheck}"
@@ -368,6 +373,28 @@
                 </Grid.RowDefinitions>
 
                 <ctl:CadCanvas x:Name="Canvas" Grid.Row="0" />
+
+                <!--
+                    The length of the run being drawn, typed over the
+                    drawing rather than in a corner of the window: the eye is
+                    on the cursor, and a measurement shown anywhere else is
+                    one nobody reads while drawing.
+                -->
+                <Border x:Name="LengthOverlay" Grid.Row="0" Visibility="Collapsed"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Background="#F21E2530" BorderBrush="#FF5AAFFF" BorderThickness="1"
+                        CornerRadius="3" Padding="6,3" Panel.ZIndex="10">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Length" Foreground="#FF9FB3C8" VerticalAlignment="Center"
+                                   Margin="0,0,6,0" />
+                        <TextBox x:Name="LengthBox" MinWidth="76" Background="Transparent"
+                                 Foreground="White" BorderThickness="0" CaretBrush="White"
+                                 VerticalContentAlignment="Center"
+                                 PreviewKeyDown="OnLengthKey" />
+                        <TextBlock x:Name="LengthUnit" Foreground="#FF9FB3C8" VerticalAlignment="Center"
+                                   Margin="6,0,0,0" />
+                    </StackPanel>
+                </Border>
 
                 <TextBlock x:Name="EmptyHint" Grid.Row="0"
                            HorizontalAlignment="Center" VerticalAlignment="Center"

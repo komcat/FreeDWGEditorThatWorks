@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 410 tests, ~1s
+dotnet test                 # 439 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -94,6 +94,10 @@ with no WPF and no parser present. Do not add either reference to Core.
 - Curves with no closed form re-sample per frame from
   `EmitContext.PixelsPerUnit` rather than being flattened at import, and from
   `PickContext.Tolerance` when they are being picked.
+- **A coordinate is a bare number; `Drawing.Units` says what it counts.**
+  Same as DWG's INSUNITS, and read from it on import. Changing the unit
+  relabels the drawing rather than rescaling it. Conversion happens only when
+  a length is *typed*, so `2in` lands correctly in a millimetre drawing.
 - **Culling and picking go through `Layout.Index`,** a BVH. It answers with
   positions into the entity list and callers sort them, because entity order
   is painting order.

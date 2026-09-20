@@ -29,6 +29,8 @@
 
     <Geometry x:Key="Icon.ZoomWindow">M4,10.5 A6.5,6.5 0 1 1 17,10.5 A6.5,6.5 0 1 1 4,10.5 Z M15.5,15.5 L21,21 M7.5,7.5 H13.5 V13.5 H7.5 Z</Geometry>
 
+    <Geometry x:Key="Icon.Settings">M9.5,12 A2.5,2.5 0 1 1 14.5,12 A2.5,2.5 0 1 1 9.5,12 Z M12,2.5 V6 M12,18 V21.5 M2.5,12 H6 M18,12 H21.5 M5.3,5.3 L7.8,7.8 M16.2,16.2 L18.7,18.7 M18.7,5.3 L16.2,7.8 M7.8,16.2 L5.3,18.7</Geometry>
+
     <Geometry x:Key="Icon.Lineweights">M4,5 H20 V6.2 H4 Z M4,10.4 H20 V13 H4 Z M4,17.2 H20 V21 H4 Z</Geometry>
 
     <Geometry x:Key="Icon.Background">M12,3 A9,9 0 1 1 11.99,3 Z M12,3 V21</Geometry>

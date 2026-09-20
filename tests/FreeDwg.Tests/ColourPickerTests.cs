@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using FreeDwg.Core.Scene;
 using FreeDwg.Core.Styling;
 using FreeDwg.Tests.Rendering;
 using FreeDWGEditorThatWorks.ViewModels;
@@ -83,6 +84,32 @@ public sealed class ColourPickerTests
             encoder.Save(stream);
             return 0;
         });
+    }
+
+    [Fact]
+    public void TheDrawingSettingsWindowBuildsAndShowsWhatIsSet()
+    {
+        var (units, shown) = StaRenderer.OnSta(() =>
+        {
+            var drawing = FreeDwg.Core.Scene.Drawing.CreateEmpty();
+            drawing.Units = DrawingUnits.Inches;
+            drawing.LinearPrecision = 2;
+
+            int changes = 0;
+            var settings = new DocumentSettingsWindow(drawing, () => changes++);
+
+            // Built without a stray change notice: opening a dialog is not
+            // an edit, and firing one would redraw the shell for nothing.
+            Assert.Equal(0, changes);
+
+            var content = (FrameworkElement)settings.Content;
+            content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+            return (drawing.Units, content.DesiredSize.Width > 100);
+        });
+
+        Assert.Equal(DrawingUnits.Inches, units);
+        Assert.True(shown);
     }
 
     /// <summary>

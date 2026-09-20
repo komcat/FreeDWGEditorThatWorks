@@ -231,6 +231,43 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Where the snap marker is showing, if one is.</summary>
     public SnapResult ActiveSnap => _snap;
 
+    /// <summary>The point the tool is drawing from, when it is mid-pick.</summary>
+    public Vec2? PendingFrom => _tool is { InProgress: true } tool ? tool.Points[^1] : null;
+
+    /// <summary>
+    /// Where the next point would land as things stand, in world units.
+    /// </summary>
+    public Vec2 PendingPoint => _snapped;
+
+    /// <summary>How long the run being drawn currently is.</summary>
+    public double? PendingLength =>
+        PendingFrom is { } from ? Vec2.Distance(from, _snapped) : null;
+
+    /// <summary>
+    /// Places the next point at a typed distance, keeping the direction the
+    /// cursor is pointing in.
+    /// </summary>
+    /// <remarks>
+    /// Direction from the cursor and length from the keyboard is how CAD has
+    /// always taken a measured line: aim it, with whatever snapping is on to
+    /// hold the angle, and say how long. It needs no separate angle field to
+    /// be useful, because polar tracking already sets the angle exactly.
+    /// </remarks>
+    public bool PlaceTypedLength(double length)
+    {
+        if (_tool is not { InProgress: true } tool || length <= 0) return false;
+
+        var from = tool.Points[^1];
+        var direction = (_snapped - from).Normalized();
+
+        // With the cursor still on the last point there is no direction to
+        // run in, and no sensible answer to give.
+        if (direction.LengthSquared <= 0) return false;
+
+        PlaceToolPoint(from + direction * length);
+        return true;
+    }
+
     /// <summary>
     /// Where a point picked at <paramref name="world"/> actually lands, once
     /// object snap, ortho and the grid have had their say.
@@ -256,7 +293,14 @@ public sealed class CadCanvas : FrameworkElement
             world, SnapTolerance, from, Camera.Scale, before);
 
         AcquireForTracking();
-        return _snap.Point;
+
+        // The current aim is set here and nowhere else. It used to be the
+        // mouse handler's business, which left this method half doing its
+        // job: anything calling it directly got the answer back but left the
+        // preview, the length readout and a typed length all looking at the
+        // previous position.
+        _snapped = _snap.Point;
+        return _snapped;
     }
 
     /// <summary>
@@ -296,6 +340,18 @@ public sealed class CadCanvas : FrameworkElement
     /// there is one source of truth for what is lit.
     /// </summary>
     public event EventHandler? ModeChanged;
+
+    /// <summary>
+    /// Fires when a tool is mid-pick and the cursor has moved, so an overlay
+    /// showing the length can keep up.
+    /// </summary>
+    public event EventHandler? PendingPointChanged;
+
+    /// <summary>
+    /// Fires when a digit is typed while a tool is picking, carrying what was
+    /// typed. The shell opens its length box on it.
+    /// </summary>
+    public event EventHandler<string>? LengthTypingStarted;
 
     /// <summary>Fires after the drawing is edited, so the shell can refresh counts.</summary>
     public event EventHandler? DrawingEdited;
@@ -642,7 +698,8 @@ public sealed class CadCanvas : FrameworkElement
 
         // Resolving on every move is what puts the marker under the cursor
         // before the click rather than after it.
-        _snapped = Mode == CanvasMode.Draw ? ResolvePoint(_cursor) : _cursor;
+        if (Mode == CanvasMode.Draw) ResolvePoint(_cursor);
+        else _snapped = _cursor;
 
         if (_isPanning)
         {
@@ -659,6 +716,7 @@ public sealed class CadCanvas : FrameworkElement
             // The preview and the snap marker both follow the cursor, so
             // every move is a repaint.
             InvalidateVisual();
+            PendingPointChanged?.Invoke(this, EventArgs.Empty);
         }
         else if (e.LeftButton == MouseButtonState.Pressed && IsMouseCaptured)
         {
@@ -711,6 +769,26 @@ public sealed class CadCanvas : FrameworkElement
         {
             PickAt(Camera.ScreenToWorld(new Vec2(p.X, p.Y)), extend);
         }
+    }
+
+    /// <summary>
+    /// Starting to type a number while picking opens the length box.
+    /// </summary>
+    /// <remarks>
+    /// The canvas keeps the keyboard so that Escape, Enter and Delete keep
+    /// working, and hands typing over only when it is plainly a measurement.
+    /// Focusing the box up front instead would take those keys away for the
+    /// whole of every draw.
+    /// </remarks>
+    protected override void OnTextInput(TextCompositionEventArgs e)
+    {
+        base.OnTextInput(e);
+
+        if (_tool is not { InProgress: true } || e.Text.Length == 0) return;
+        if (!char.IsAsciiDigit(e.Text[0]) && e.Text[0] != '.') return;
+
+        LengthTypingStarted?.Invoke(this, e.Text);
+        e.Handled = true;
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -794,6 +872,7 @@ public sealed class CadCanvas : FrameworkElement
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
