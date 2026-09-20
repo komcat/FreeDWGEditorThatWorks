@@ -13,6 +13,7 @@ using FreeDwg.Core.Tools;
 using FreeDWGEditorThatWorks.Controls;
 using FreeDwg.Interop.Acad;
 using FreeDWGEditorThatWorks.ViewModels;
+using FreeDWGEditorThatWorks.Views;
 using Microsoft.Win32;
 using SceneDrawing = FreeDwg.Core.Scene.Drawing;
 using SceneLayout = FreeDwg.Core.Scene.Layout;
@@ -250,7 +251,7 @@ public partial class MainWindow : Window
         string? wasOn = (PropertyGrid.SelectedItem as PropertyRow)?.Name;
 
         _properties.Clear();
-        foreach (var row in PropertySource.Build(Canvas)) _properties.Add(row);
+        foreach (var row in PropertySource.Build(Canvas, ChooseColour)) _properties.Add(row);
 
         PropertyScopeText.Text = Canvas.Selection.Count switch
         {
@@ -264,6 +265,24 @@ public partial class MainWindow : Window
 
         ShowPropertyHelp();
     }
+
+    /// <summary>
+    /// Opens the colour picker, once the grid has finished with the cell.
+    /// </summary>
+    /// <remarks>
+    /// Deferred deliberately. The request arrives while the DataGrid is
+    /// committing the cell the choice was made in, and opening a modal window
+    /// inside that commit is a way to wedge WPF's input system. Letting the
+    /// commit finish first costs a frame and nothing else.
+    /// </remarks>
+    private void ChooseColour(Rgb current, Action<Rgb> chosen) =>
+        Dispatcher.BeginInvoke(() =>
+        {
+            var picker = new ColourPickerWindow(current) { Owner = this };
+
+            if (picker.ShowDialog() == true) chosen(picker.Chosen);
+            else RebuildProperties();
+        });
 
     private void OnPropertyRowSelected(object sender, SelectionChangedEventArgs e) => ShowPropertyHelp();
 

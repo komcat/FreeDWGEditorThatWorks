@@ -90,6 +90,156 @@ public sealed class PropertyPanelTests
         Assert.False(Row(rows, "Start X").IsReadOnly);
     }
 
+    // ---- the colour picker -------------------------------------------------
+
+    [Fact]
+    public void ThePaletteIsEvenAndHasNoRepeats()
+    {
+        var swatches = ColourPalette.Swatches;
+
+        Assert.Equal(0, swatches.Count % ColourPalette.Columns);
+        Assert.Equal(swatches.Count, swatches.Distinct().Count());
+    }
+
+    [Fact]
+    public void ThePaletteHoldsTheColoursTheDropdownNames()
+    {
+        var swatches = ColourPalette.Swatches.ToHashSet();
+
+        // The picker and the list have to agree, or picking red from one and
+        // reading it back in the other would show a hex code.
+        Assert.Contains(new Rgb(255, 0, 0), swatches);
+        Assert.Contains(new Rgb(0, 255, 0), swatches);
+        Assert.Contains(new Rgb(0, 0, 255), swatches);
+        Assert.Contains(new Rgb(0, 255, 255), swatches);
+        Assert.Contains(new Rgb(255, 255, 0), swatches);
+        Assert.Contains(new Rgb(255, 0, 255), swatches);
+
+        Assert.Contains(Rgb.Black, swatches);
+        Assert.Contains(Rgb.White, swatches);
+        Assert.Contains(new Rgb(128, 128, 128), swatches);
+    }
+
+    [Fact]
+    public void EveryPaletteColourSurvivesBeingNamedAndReadBack()
+    {
+        foreach (var colour in ColourPalette.Swatches)
+        {
+            string name = StyleChoices.ColourName(colour);
+
+            Assert.True(StyleChoices.TryColour(name, out var again), $"'{name}' could not be read back");
+            Assert.Equal(colour, again);
+        }
+    }
+
+    [Theory]
+    [InlineData(0.0, 255, 0, 0)]
+    [InlineData(120.0, 0, 255, 0)]
+    [InlineData(240.0, 0, 0, 255)]
+    public void AFullySaturatedMidLightnessHueIsThePureColour(double hue, byte r, byte g, byte b)
+    {
+        Assert.Equal(new Rgb(r, g, b), ColourPalette.FromHsl(hue, 1.0, 0.5));
+    }
+
+    [Fact]
+    public void NoSaturationIsGreyWhateverTheHue()
+    {
+        var grey = ColourPalette.FromHsl(200, 0.0, 0.5);
+
+        Assert.Equal(grey.R, grey.G);
+        Assert.Equal(grey.G, grey.B);
+    }
+
+    [Fact]
+    public void ThePickerIsOfferedOnlyWhenThereIsOneToOpen()
+    {
+        var (without, with) = OnCanvas((canvas, _) =>
+        {
+            DrawAndSelectMany(canvas, 1);
+
+            var plain = Row(PropertySource.Build(canvas), "Colour").Choices!;
+            var offered = Row(PropertySource.Build(canvas, (_, _) => { }), "Colour").Choices!;
+
+            return (plain.ToList(), offered.ToList());
+        });
+
+        Assert.DoesNotContain(PropertySource.MoreColours, without);
+        Assert.Contains(PropertySource.MoreColours, with);
+        Assert.Equal(PropertySource.MoreColours, with[^1]);
+    }
+
+    [Fact]
+    public void ChoosingAColourFromThePickerAppliesIt()
+    {
+        var colour = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+
+            // Stands in for the dialog: answers at once with a fixed colour.
+            void Picker(Rgb current, Action<Rgb> chosen) => chosen(new Rgb(18, 52, 86));
+
+            Row(PropertySource.Build(canvas, Picker), "Colour").Value = PropertySource.MoreColours;
+
+            return drawing.Entities[0].Style.Color;
+        });
+
+        Assert.Equal(new Rgb(18, 52, 86), colour);
+    }
+
+    [Fact]
+    public void ThePickerIsHandedTheColourTheObjectAlreadyHas()
+    {
+        var offered = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+            Row(PropertySource.Build(canvas), "Colour").Value = "Green";
+
+            var seen = Rgb.Black;
+            void Picker(Rgb current, Action<Rgb> chosen) => seen = current;
+
+            Row(PropertySource.Build(canvas, Picker), "Colour").Value = PropertySource.MoreColours;
+            return seen;
+        });
+
+        // So the dialog opens on the colour being changed, not on black.
+        Assert.Equal(new Rgb(0, 255, 0), offered);
+    }
+
+    [Fact]
+    public void CancellingThePickerChangesNothing()
+    {
+        var colour = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelect(canvas, drawing);
+
+            // A cancelled dialog simply never calls back.
+            void Picker(Rgb current, Action<Rgb> chosen) { }
+
+            Row(PropertySource.Build(canvas, Picker), "Colour").Value = PropertySource.MoreColours;
+
+            return drawing.Entities[0].Style.Color;
+        });
+
+        Assert.Equal(Rgb.White, colour);
+    }
+
+    [Fact]
+    public void APickedColourAppliesAcrossAWholeSelection()
+    {
+        var colours = OnCanvas((canvas, drawing) =>
+        {
+            DrawAndSelectMany(canvas, 3);
+
+            void Picker(Rgb current, Action<Rgb> chosen) => chosen(new Rgb(200, 100, 50));
+
+            Row(PropertySource.Build(canvas, Picker), "Colour").Value = PropertySource.MoreColours;
+
+            return drawing.Entities.Select(entity => entity.Style.Color).Distinct().ToList();
+        });
+
+        Assert.Equal(new Rgb(200, 100, 50), Assert.Single(colours));
+    }
+
     // ---- several objects at once ------------------------------------------
 
     /// <summary>Draws a stack of lines and selects them all.</summary>

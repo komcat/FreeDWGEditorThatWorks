@@ -323,6 +323,24 @@ than it sounds: a selection is in the order it was picked, not the order the
 entities sit in, and entity order is painting order, so restoring in pick
 order would quietly reshuffle the drawing. There is a test for exactly that.
 
+The last entry of the colour list opens a picker, where AutoCAD puts Select
+Colour. The palette is generated from hue and lightness rather than typed
+out, so the rows are even and no value is a transcription error; the middle
+row is fully saturated, which is what puts the six pure hues the dropdown
+names into the grid, so the two agree. A test checks that every swatch
+survives being named and read back.
+
+AutoCAD's 255-entry colour index would be the authentic palette, but Core
+resolves indices to 24-bit colour at import and has nowhere to put one back,
+so reproducing that table from memory would risk being quietly wrong about
+colours nobody could then correct.
+
+The chooser reaches `PropertySource` as a delegate supplied by the shell,
+which keeps the panel testable with a stand-in that answers at once. It takes
+a callback rather than returning a colour because the shell has to *defer*
+the dialog: opening a modal window while the grid is still committing the
+cell it was picked in is a way to wedge WPF's input system.
+
 This is also where real numeric entry should grow from: it is the only place
 in the app that takes a typed figure. The figure itself lives on the canvas
 as `CornerRadius`, not on the tool: it was copied into the tool at

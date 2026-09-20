@@ -31,12 +31,31 @@ public static class PropertySource
     /// </summary>
     public const string Varies = "*varies*";
 
-    public static List<PropertyRow> Build(CadCanvas canvas)
+    /// <summary>
+    /// The last entry of the colour list, which opens the picker. AutoCAD
+    /// calls it Select Colour and puts it in the same place, so the habit
+    /// transfers.
+    /// </summary>
+    public const string MoreColours = "More colours...";
+
+    /// <summary>
+    /// Asks for a colour, given the current one, and calls back with the
+    /// answer if there is one.
+    /// </summary>
+    /// <remarks>
+    /// A callback rather than a return value because the shell has to defer
+    /// the dialog: opening a modal window while the grid is still committing
+    /// the cell it was edited in is a way to hang WPF's input system. The
+    /// panel therefore accepts the choice now and the colour arrives later.
+    /// </remarks>
+    public delegate void ColourChooser(Rgb current, Action<Rgb> chosen);
+
+    public static List<PropertyRow> Build(CadCanvas canvas, ColourChooser? chooseColour = null)
     {
         var rows = new List<PropertyRow>();
 
         AddSettings(canvas, rows);
-        AddSelection(canvas, rows);
+        AddSelection(canvas, rows, chooseColour);
 
         return rows;
     }
@@ -97,14 +116,14 @@ public static class PropertySource
             }));
     }
 
-    private static void AddSelection(CadCanvas canvas, List<PropertyRow> rows)
+    private static void AddSelection(CadCanvas canvas, List<PropertyRow> rows, ColourChooser? chooseColour)
     {
         var selected = canvas.Selection.Ordered;
         if (selected.Count == 0 || canvas.Drawing is not { } drawing) return;
 
         if (selected.Count > 1)
         {
-            AddShared(canvas, drawing, selected, rows);
+            AddShared(canvas, drawing, selected, rows, chooseColour);
             return;
         }
 
@@ -123,8 +142,11 @@ public static class PropertySource
             + "than following it later: ByLayer is resolved when a file is read, so the scene "
             + "holds a colour and not a link.",
             StyleChoices.ColourName(entity.Style.Color),
-            text => SetColour(canvas, drawing, entity, text),
-            choices: StyleChoices.Colours(entity.Style.Color),
+            text => text == MoreColours
+                ? Choose(chooseColour, entity.Style.Color,
+                    colour => SetColour(canvas, drawing, entity, $"#{colour.Packed:X6}"))
+                : SetColour(canvas, drawing, entity, text),
+            choices: WithPicker(StyleChoices.Colours(entity.Style.Color), chooseColour),
             swatch: PropertyRow.Chip(entity.Style.Color)));
 
         rows.Add(new PropertyRow(General, "Lineweight",
@@ -155,7 +177,7 @@ public static class PropertySource
     /// thirty-nine of them.
     /// </remarks>
     private static void AddShared(CadCanvas canvas, Drawing drawing,
-        IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+        IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows, ColourChooser? chooseColour)
     {
         string kinds = selected.Select(Describe).Distinct().Count() == 1
             ? Describe(selected[0]).ToLowerInvariant() + "s"
@@ -184,8 +206,11 @@ public static class PropertySource
             "The colour these objects draw in. Picking one sets all of them.",
             colour,
             text => text == Varies
-                 || EditAll(canvas, selected, copy => SetCopyColour(drawing, copy, text), "Set colour"),
-            choices: WithVaries(StyleChoices.Colours(selected[0].Style.Color), sameColour),
+                 || (text == MoreColours
+                     ? Choose(chooseColour, selected[0].Style.Color, picked => EditAll(canvas, selected,
+                         copy => SetCopyColour(drawing, copy, $"#{picked.Packed:X6}"), "Set colour"))
+                     : EditAll(canvas, selected, copy => SetCopyColour(drawing, copy, text), "Set colour")),
+            choices: WithPicker(WithVaries(StyleChoices.Colours(selected[0].Style.Color), sameColour), chooseColour),
             swatch: sameColour ? PropertyRow.Chip(selected[0].Style.Color) : null));
 
         var weight = Shared(selected, entity => StyleChoices.WeightName(entity.Style.Lineweight), out bool sameWeight);
@@ -246,6 +271,28 @@ public static class PropertySource
             Shared(selected, entity => PropertyRow.Number(read(entity)), out _),
             text => PropertyRow.TryNumber(text, out double value)
                  && EditAll(canvas, selected, copy => write(copy, value), $"Set {name.ToLowerInvariant()}"));
+
+    /// <summary>
+    /// Hands the choice to the shell and reports success immediately. The
+    /// colour has not been applied yet and may never be, if the dialog is
+    /// cancelled -- but the row is showing what is really set either way,
+    /// since nothing has changed at the moment this returns.
+    /// </summary>
+    private static bool Choose(ColourChooser? chooser, Rgb current, Action<Rgb> apply)
+    {
+        if (chooser is null) return false;
+
+        chooser(current, apply);
+        return false;
+    }
+
+    private static IReadOnlyList<string> WithPicker(IReadOnlyList<string> choices, ColourChooser? chooser)
+    {
+        if (chooser is null) return choices;
+
+        var withPicker = new List<string>(choices) { MoreColours };
+        return withPicker;
+    }
 
     /// <summary>The value they all share, or <see cref="Varies"/>.</summary>
     private static string Shared(IReadOnlyList<SceneEntity> selected,

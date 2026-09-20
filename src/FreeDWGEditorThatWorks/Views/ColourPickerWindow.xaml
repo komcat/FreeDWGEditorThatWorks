@@ -1,0 +1,67 @@
+﻿<Window x:Class="FreeDWGEditorThatWorks.Views.ColourPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Select colour" SizeToContent="WidthAndHeight" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <StackPanel Margin="12">
+        <!--
+            A grid of swatches over a hex field: the grid is how a colour is
+            usually chosen, and the field is how the one colour that is not in
+            the grid gets in. Both write to the same preview, so whichever was
+            used last is plainly the answer.
+        -->
+        <ItemsControl x:Name="Swatches">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Columns="12" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Width="22" Height="22" Margin="1" Click="OnSwatchClick"
+                            Tag="{Binding Colour}" ToolTip="{Binding Name}"
+                            Focusable="False">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Chip" Background="{Binding Brush}"
+                                        BorderBrush="#66000000" BorderThickness="1" />
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Chip" Property="BorderBrush" Value="#FF1A1A1A" />
+                                        <Setter TargetName="Chip" Property="BorderThickness" Value="2" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" Text="Hex" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <TextBox x:Name="HexBox" Grid.Column="1" Width="92" VerticalContentAlignment="Center"
+                     TextChanged="OnHexChanged" />
+
+            <Border Grid.Column="2" Width="46" Height="24" Margin="10,0,0,0"
+                    BorderBrush="#66000000" BorderThickness="1">
+                <Border x:Name="Preview" />
+            </Border>
+
+            <TextBlock x:Name="PreviewName" Grid.Column="3" VerticalAlignment="Center"
+                       Margin="8,0,0,0" Opacity="0.7" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Width="84" Height="26" IsCancel="True" Margin="0,0,8,0" />
+            <Button Content="OK" Width="84" Height="26" IsDefault="True" Click="OnAccept" />
+        </StackPanel>
+    </StackPanel>
+</Window>
