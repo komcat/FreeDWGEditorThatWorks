@@ -40,8 +40,11 @@ public enum SnapModes
     /// </summary>
     Tracking = 1 << 7,
 
+    /// <summary>Where two objects cross.</summary>
+    Intersection = 1 << 8,
+
     /// <summary>Everything that belongs to an object, which is everything but the grid.</summary>
-    Objects = Endpoint | Midpoint | Center | Quadrant | Perpendicular | Tangent,
+    Objects = Endpoint | Midpoint | Center | Quadrant | Perpendicular | Tangent | Intersection,
 
     All = Objects | Grid | Tracking,
 }
@@ -61,6 +64,9 @@ public enum SnapKind
     Grid,
     Perpendicular,
     Tangent,
+
+    /// <summary>Where two objects cross.</summary>
+    Intersection,
 
     /// <summary>Lined up with a point the cursor rested on earlier.</summary>
     Tracking,

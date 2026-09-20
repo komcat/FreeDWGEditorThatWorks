@@ -83,6 +83,9 @@
                 <ToggleButton x:Name="TangentSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
                               Tag="{StaticResource Icon.SnapTangent}" Click="OnSnapToggled"
                               ToolTip="Snap tangent  -  where a line from the point you are drawing from just touches a circle" />
+                <ToggleButton x:Name="IntersectionSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapIntersection}" Click="OnSnapToggled"
+                              ToolTip="Snap to intersections  -  where two objects cross" />
                 <ToggleButton x:Name="TrackingSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
                               Tag="{StaticResource Icon.SnapTracking}" Click="OnSnapToggled"
                               ToolTip="Tracking  -  hover a point to acquire it, then line up level with it or above it" />

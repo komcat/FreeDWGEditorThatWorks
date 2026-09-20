@@ -47,6 +47,9 @@
 
     <Geometry x:Key="Icon.SnapCenter">M4,12 A8,8 0 1 1 20,12 A8,8 0 1 1 4,12 Z M9,12 A3,3 0 1 1 15,12 A3,3 0 1 1 9,12 Z</Geometry>
 
+    <!-- Two runs crossing, with the crossing itself boxed. -->
+    <Geometry x:Key="Icon.SnapIntersection">M2,18 L22,6 M2,6 L22,18 M9,9 H15 V15 H9 Z</Geometry>
+
     <!-- A right angle, marked the way a drawing marks one. -->
     <Geometry x:Key="Icon.SnapPerpendicular">M3,20 H21 M12,3 V20 M12,16 H16 V20</Geometry>
 

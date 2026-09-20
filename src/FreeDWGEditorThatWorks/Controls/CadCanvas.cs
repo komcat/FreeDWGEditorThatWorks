@@ -461,6 +461,12 @@ public sealed class CadCanvas : FrameworkElement
                 dc.DrawLine(SnapPen, new Point(at.X, at.Y), new Point(at.X, at.Y + r));
                 return;
 
+            // An X on the crossing, as a drawing marks one.
+            case SnapKind.Intersection:
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y - r), new Point(at.X + r, at.Y + r));
+                dc.DrawLine(SnapPen, new Point(at.X + r, at.Y - r), new Point(at.X - r, at.Y + r));
+                return;
+
             // A circle with the line it touches lying across the top.
             case SnapKind.Tangent:
                 dc.DrawEllipse(null, SnapPen, new Point(at.X, at.Y + 1), r, r - 1);

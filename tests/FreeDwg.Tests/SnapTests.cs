@@ -260,6 +260,123 @@ public sealed class SnapTests
         Assert.False(Snap(drawing, engine, new Vec2(30, 1), from: new Vec2(30, 50)).Found);
     }
 
+    // ---- intersections --------------------------------------------------------
+
+    [Fact]
+    public void TwoCrossingLinesSnapWhereTheyCross()
+    {
+        var drawing = WithEntities(
+            new SLine(new Vec2(0, 0), new Vec2(100, 0)),
+            new SLine(new Vec2(40, -50), new Vec2(40, 50)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection };
+        var result = Snap(drawing, engine, new Vec2(40.7, 0.6));
+
+        Assert.Equal(SnapKind.Intersection, result.Kind);
+        Assert.Equal(new Vec2(40, 0), result.Point);
+    }
+
+    [Fact]
+    public void ALineCrossingACircleOffersTheNearerSide()
+    {
+        var drawing = WithEntities(
+            new SCircle(Vec2.Zero, 10),
+            new SLine(new Vec2(-50, 0), new Vec2(50, 0)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection };
+
+        // Two crossings, at -10 and +10; the cursor is by the right one.
+        var result = Snap(drawing, engine, new Vec2(10.5, 0.4));
+
+        Assert.Equal(SnapKind.Intersection, result.Kind);
+        Assert.Equal(10, result.Point.X, 6);
+        Assert.Equal(0, result.Point.Y, 6);
+    }
+
+    [Fact]
+    public void ObjectsThatOnlyWouldCrossOfferNothing()
+    {
+        // They would meet at (40, 0) if the second ran far enough.
+        var drawing = WithEntities(
+            new SLine(new Vec2(0, 0), new Vec2(100, 0)),
+            new SLine(new Vec2(40, 20), new Vec2(40, 50)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection };
+
+        Assert.False(Snap(drawing, engine, new Vec2(40, 0.5)).Found);
+    }
+
+    [Fact]
+    public void APolylineVertexIsNotOfferedAsACrossing()
+    {
+        // Two segments of one polyline meet at every vertex. Reporting those
+        // would offer each vertex twice, once under a marker that means
+        // something else entirely.
+        var drawing = WithEntities(new SPolyline(
+            [new PolyVertex(new Vec2(0, 0)), new PolyVertex(new Vec2(40, 0)), new PolyVertex(new Vec2(40, 40))],
+            closed: false));
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection };
+
+        Assert.False(Snap(drawing, engine, new Vec2(40.3, 0.3)).Found);
+    }
+
+    [Fact]
+    public void ACrossingOnALockedLayerIsNotOffered()
+    {
+        var drawing = SceneDrawing.CreateEmpty();
+        drawing.AddLayer(new Layer("LOCKED") { IsLocked = true });
+
+        drawing.Add(new SLine(new Vec2(0, 0), new Vec2(100, 0)));
+        drawing.Add(new SLine(new Vec2(40, -50), new Vec2(40, 50)) { LayerIndex = 1 });
+
+        var engine = new SnapEngine { Modes = SnapModes.Intersection };
+
+        // It takes two to cross, and one of them is not available.
+        Assert.False(Snap(drawing, engine, new Vec2(40.4, 0.4)).Found);
+    }
+
+    [Fact]
+    public void AnEndpointStillWinsWhenItIsNearer()
+    {
+        var drawing = WithEntities(
+            new SLine(new Vec2(0, 0), new Vec2(100, 0)),
+            new SLine(new Vec2(40, -50), new Vec2(40, 50)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Endpoint | SnapModes.Intersection };
+
+        // Nearer the end of the first line than the crossing at (40, 0).
+        var result = Snap(drawing, engine, new Vec2(99.8, 0.2));
+
+        Assert.Equal(SnapKind.Endpoint, result.Kind);
+        Assert.Equal(new Vec2(100, 0), result.Point);
+    }
+
+    [Fact]
+    public void ACrossingWinsWhenItIsTheNearerOfTheTwo()
+    {
+        var drawing = WithEntities(
+            new SLine(new Vec2(0, 0), new Vec2(100, 0)),
+            new SLine(new Vec2(40, -50), new Vec2(40, 50)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Endpoint | SnapModes.Intersection };
+        var result = Snap(drawing, engine, new Vec2(40.2, 0.2));
+
+        Assert.Equal(SnapKind.Intersection, result.Kind);
+    }
+
+    [Fact]
+    public void ACrossingIsNotOfferedWhileTheSnapIsSwitchedOff()
+    {
+        var drawing = WithEntities(
+            new SLine(new Vec2(0, 0), new Vec2(100, 0)),
+            new SLine(new Vec2(40, -50), new Vec2(40, 50)));
+
+        var engine = new SnapEngine { Modes = SnapModes.Endpoint };
+
+        Assert.False(Snap(drawing, engine, new Vec2(40.3, 0.3)).Found);
+    }
+
     // ---- tracking -------------------------------------------------------------
 
     [Fact]

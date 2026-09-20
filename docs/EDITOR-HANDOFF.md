@@ -378,10 +378,20 @@ the far side of the sheet is otherwise indistinguishable from one placed by
 hand nearby, and the line back to the corner is the whole explanation --
 which is why `SnapResult` carries them.
 
-Still to do: an intersection snap (the geometry exists and is simply not
-wired to the engine); polygon, which needs somewhere to ask for a side count;
-text, which needs an editor; offset, which needs real curve offsetting;
-array, which needs row and column counts; and explode.
+**Intersection** was the last of the eight, and cost almost nothing: the
+geometry had been there since trim, so wiring it up was collecting the curve
+pieces near the cursor and pairing them. Two details are load-bearing. Pieces
+are filtered against the cursor box before pairing, since pairing is
+quadratic and a dense hatch could otherwise offer thousands; and pieces of
+the *same* entity are never paired, because adjacent polyline segments meet
+at every vertex and reporting those would offer each vertex twice, once
+correctly as an endpoint and once under a marker meaning something else. The
+cost is that a polyline crossing itself offers nothing, which is rare and far
+less confusing than the alternative.
+
+Still to do: polygon, which needs somewhere to ask for a side count; text,
+which needs an editor; offset, which needs real curve offsetting; array,
+which needs row and column counts; and explode.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at

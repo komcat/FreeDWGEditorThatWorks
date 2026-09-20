@@ -29,6 +29,19 @@ public sealed class SnapEngine
     private readonly List<Vec2> _feet = new();
     private readonly List<Vec2> _tracked = new();
 
+    /// <summary>Curve pieces near the cursor, with the entity each came from.</summary>
+    private readonly List<CurvePiece> _pieces = new();
+    private readonly List<int> _owners = new();
+    private readonly List<Vec2> _crossings = new();
+
+    /// <summary>
+    /// A ceiling on the pieces considered for crossings. Pairing them is
+    /// quadratic, and a dense hatch under the cursor can offer thousands --
+    /// only the ones nearest the cursor could win anyway, so the rest are
+    /// work with no possible outcome.
+    /// </summary>
+    public const int MaxCrossingPieces = 192;
+
     /// <summary>
     /// How many points stay acquired for tracking. Two, because the useful
     /// case is lining up with one across and another up, and a longer memory
@@ -124,6 +137,9 @@ public sealed class SnapEngine
         _nearby.Clear();
         index.Query(area, _nearby);
 
+        _pieces.Clear();
+        _owners.Clear();
+
         var best = SnapResult.Miss(cursor);
         double bestDistance = tolerance;
 
@@ -145,6 +161,8 @@ public sealed class SnapEngine
             // from, so they cannot be offered by an entity on its own.
             if (from is { } origin) AddProjected(entity, origin, wanted, tolerance);
 
+            if (wanted.HasFlag(SnapModes.Intersection)) CollectNearbyPieces(entity, position, area, tolerance);
+
             foreach (var candidate in _candidates)
             {
                 if ((wanted & ToMode(candidate.Kind)) == 0) continue;
@@ -159,7 +177,68 @@ public sealed class SnapEngine
             }
         }
 
+        if (wanted.HasFlag(SnapModes.Intersection))
+        {
+            foreach (var crossing in Crossings())
+            {
+                double distance = Vec2.Distance(crossing, cursor);
+                if (distance > bestDistance) continue;
+
+                bestDistance = distance;
+                best = new SnapResult(crossing, SnapKind.Intersection);
+            }
+        }
+
         return best;
+    }
+
+    /// <summary>
+    /// Keeps the curve pieces of one entity that come near the cursor, for
+    /// the crossing pass to pair up afterwards.
+    /// </summary>
+    private void CollectNearbyPieces(SceneEntity entity, int owner, Bounds2 area, double tolerance)
+    {
+        if (_pieces.Count >= MaxCrossingPieces) return;
+
+        _curves.Clear();
+        entity.CollectCurves(_curves, Math.Max(tolerance / 4, 1e-9));
+
+        foreach (var piece in _curves)
+        {
+            if (_pieces.Count >= MaxCrossingPieces) return;
+            if (!piece.Bounds.Inflate(tolerance).Intersects(area)) continue;
+
+            _pieces.Add(piece);
+            _owners.Add(owner);
+        }
+    }
+
+    /// <summary>
+    /// Every point where two of the collected pieces cross.
+    /// </summary>
+    /// <remarks>
+    /// Pieces of the same entity are not paired with each other. Adjacent
+    /// segments of a polyline meet at every vertex, and reporting those as
+    /// crossings would offer each vertex twice -- once correctly as an
+    /// endpoint and once under a marker that means something else. The cost
+    /// is that a polyline crossing itself offers nothing, which is rare and
+    /// far less confusing than the alternative.
+    /// </remarks>
+    private List<Vec2> Crossings()
+    {
+        _crossings.Clear();
+
+        for (int i = 0; i < _pieces.Count; i++)
+        {
+            for (int j = i + 1; j < _pieces.Count; j++)
+            {
+                if (_owners[i] == _owners[j]) continue;
+
+                Intersection.Between(_pieces[i], _pieces[j], _crossings);
+            }
+        }
+
+        return _crossings;
     }
 
     /// <summary>
@@ -262,6 +341,7 @@ public sealed class SnapEngine
         SnapKind.Grid => SnapModes.Grid,
         SnapKind.Perpendicular => SnapModes.Perpendicular,
         SnapKind.Tangent => SnapModes.Tangent,
+        SnapKind.Intersection => SnapModes.Intersection,
         SnapKind.Tracking => SnapModes.Tracking,
         _ => SnapModes.None,
     };

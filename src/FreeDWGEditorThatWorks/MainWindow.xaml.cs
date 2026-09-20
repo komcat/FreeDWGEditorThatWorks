@@ -324,6 +324,7 @@ public partial class MainWindow : Window
         if (QuadrantSnapToggle.IsChecked == true) modes |= SnapModes.Quadrant;
         if (PerpendicularSnapToggle.IsChecked == true) modes |= SnapModes.Perpendicular;
         if (TangentSnapToggle.IsChecked == true) modes |= SnapModes.Tangent;
+        if (IntersectionSnapToggle.IsChecked == true) modes |= SnapModes.Intersection;
         if (TrackingSnapToggle.IsChecked == true) modes |= SnapModes.Tracking;
         if (GridToggle.IsChecked == true) modes |= SnapModes.Grid;
 
