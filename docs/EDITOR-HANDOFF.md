@@ -13,6 +13,10 @@ this and a program someone could use on a real file. The groundwork for it --
 `SourceHandle` carried on everything, every mutation going through the
 command stack -- has been in since before the editor phase began, on purpose.
 
+If there is a `NEXT-SESSION.md` beside this file, read that first: it is a
+short dated note about where the last session stopped, and it is deleted
+once it has been used. This file is the map and does not go stale.
+
 Picking this up cold, read in this order:
 
 1. `CLAUDE.md`, for the conventions that are load-bearing. Several of them
@@ -165,6 +169,11 @@ or moved. And because ByLayer is resolved away at import, recolouring a layer
 has to go and recolour its entities or the swatch and the drawing disagree;
 `ChangeLayer` restyles the ones still drawn in the layer's old style, which is
 exactly the set that was following it, and leaves an explicit override alone.
+
+The tool that found all of this is committed: set `FREEDWG_SAMPLES` to a
+folder of drawings and run `dotnet test --filter Survey -l
+"console;verbosity=detailed"`. It asserts nothing and reports what came
+back, including the unsupported tally ranked across the whole folder.
 
 **What a folder of real files taught us.** Fourteen ordinary sample drawings
 -- architectural, civil and mechanical, metric and imperial -- were opened
@@ -683,9 +692,11 @@ It is not needed before E5.
    `DwgSession` described above; the writer is the easy half. Note that the
    change log now reports layers as well as entities, and that `SDimension`
    and the imported exploded-block dimensions have to be reconciled there.
-2. **Explode.** The smallest piece that unlocks another: trim and extend
-   handle lines, arcs and circles only, so a polyline has to be broken up
-   first, and today there is no way to break one up.
+2. **Explode.** Trim and extend handle lines, arcs and circles only, so a
+   polyline has to be broken up first and there is no way to break one up.
+   It no longer blocks fillet and chamfer, which turned out not to need it:
+   a polyline corner is edited in place. That is worth remembering before
+   assuming the next thing needs it either.
 3. **The rest of numeric entry** -- an angle field, and XY. Lengths alone
    already cover most of drawing to size, and they now finish a grip drag as
    well as a picked point.
