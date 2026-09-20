@@ -94,6 +94,13 @@ that one is clear, with a probe placed off the line by more than half its
 width and less than half an arrowhead -- so it is blank only because the
 arrows really have gone outside.
 
+**`LayerPanelTests`** is about one fact and is short because of it: a row in
+the layers list carries the index of the layer it shows, rather than the
+panel reading the row's position back off the list. With the filter in the
+way those are different numbers, and using the position renames, recolours
+or deletes a layer nobody pointed at -- with nothing to see until the
+drawing has already changed.
+
 **`LayerTests`** covers making, deleting and editing layers. Nearly all of it
 is about one fact: an entity names its layer by *position*, so deleting one
 from the middle leaves every entity past it pointing at its neighbour -- in

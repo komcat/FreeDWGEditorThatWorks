@@ -22,7 +22,7 @@ Picking this up cold, read in this order:
 3. `tests/FreeDwg.Tests/README.md`, before touching anything the render tests
    cover.
 
-582 tests pass in about a second. Two kinds of them exist because ordinary
+590 tests pass in about a second. Two kinds of them exist because ordinary
 tests could not catch what they catch: the render tests assert **pixels at
 world coordinates**, because three bugs so far were invisible to the object
 model; and `StartupTests` runs the real executable and waits for a **window**,
@@ -55,10 +55,11 @@ the editor phase.
 | E4 | `6d0f6d7` `71e381c` | polar tracking, measured from the last segment |
 | — | `c76a19b` | tangent and perpendicular aim at the object, not at the answer |
 | E4 | `f1bd651` | typed lengths, and document units |
-| E3 | — | grips: handles on the selection, stretch and move |
-| E4 | — | dimensions: linear, aligned, radius and diameter |
-| E4 | — | fillet and chamfer on a polyline corner; sizes typed on the canvas |
-| — | — | layers: new, delete, rename, recolour |
+| E3 | `4cd4e0d` | grips: handles on the selection, stretch and move |
+| E4 | `4cd4e0d` | dimensions: linear, aligned, radius and diameter |
+| E4 | `4cd4e0d` | fillet and chamfer on a polyline corner; sizes typed on the canvas |
+| — | `4cd4e0d` | layers: new, delete, rename, recolour |
+| — | — | the layers panel moves to the right, with a filter |
 | E5 | — | **save — not started** |
 
 E1, E2 and E3 are done. E4 is done but for polygon, text, hatch, spline,
@@ -139,6 +140,19 @@ The fillet radius and the chamfer distance are typed **on the canvas** now,
 in the same box the length goes in -- `CursorEntry` says which of the three
 it is showing. They are also two separate numbers: sharing one meant that
 setting a 2 mm chamfer silently made every later fillet 2 mm as well.
+
+The panel they live in is on the right of the drawing now, with the full
+height of the window, and has a box to find a layer by typing part of its
+name. A real file arrives with fifty layers called things like
+`Structural_Section_StairA` and the old panel -- sharing one narrow column
+with Properties -- showed eight of them.
+
+The filter brought one hazard with it, and it is the kind that does damage
+before anyone notices: the panel used to read a row's *position* back off
+the ListBox and use it as the layer's index. With rows hidden those are
+different numbers, so renaming the third row showing would have renamed the
+third layer in the drawing. `LayerItem.Index` carries it instead, and
+nothing in the panel asks the list where a row is any more.
 
 **Layers are editable.** New, delete, rename, recolour, and the three
 switches, all through the command stack. Two things make this less trivial

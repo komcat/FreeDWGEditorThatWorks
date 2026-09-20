@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 582 tests, ~1s
+dotnet test                 # 590 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -83,6 +83,11 @@ with no WPF and no parser present. Do not add either reference to Core.
   that silently does nothing. The fillet radius and the chamfer distance are
   *separate* numbers: they were one once, and setting a chamfer quietly
   changed every fillet after it.
+- **A layer row carries its own index.** The layers list is filtered, so a
+  row's *position* is not the layer's position in `Drawing.Layers` -- and
+  using the position would rename, recolour or delete a layer nobody
+  pointed at, silently and after the fact. Nothing in the panel asks the
+  ListBox where a row is; `LayerItem.Index` is the only answer.
 - **`CursorEntry` is the single answer to "what does the box beside the
   cursor edit".** A length while a point is being placed, otherwise the size
   the corner tool in hand works to. One enum, one destination for a typed

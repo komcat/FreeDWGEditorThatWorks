@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Linq;
+using System.ComponentModel;
 using System.Windows.Data;
 using System.IO;
 using System.Threading.Tasks;
@@ -28,6 +29,7 @@ public partial class MainWindow : Window
     private static readonly Rgb LightBackground = new(255, 255, 255);
 
     private readonly ObservableCollection<LayerItem> _layers = new();
+    private ICollectionView? _layerView;
     private readonly ObservableCollection<PropertyRow> _properties = new();
 
     /// <summary>
@@ -56,6 +58,12 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         LayerList.ItemsSource = _layers;
+
+        // The filter runs over the view rather than over the collection, so
+        // the rows that are hidden are still there to be counted and still
+        // carry the layer index they always did.
+        _layerView = CollectionViewSource.GetDefaultView(_layers);
+        _layerView.Filter = row => ((LayerItem)row).Matches(LayerFilterBox.Text.Trim());
 
         // Grouped in the view rather than the collection, so the rows stay a
         // flat list that is simple to rebuild.
@@ -491,17 +499,78 @@ public partial class MainWindow : Window
 
         _layers.Clear();
         for (int i = 0; i < drawing.Layers.Count; i++)
-            _layers.Add(new LayerItem(drawing.Layers[i], counts[i], OnLayerVisibilityChanged));
-
-        LayerCountText.Text = _layers.Count.ToString();
+            _layers.Add(new LayerItem(drawing.Layers[i], i, counts[i], OnLayerVisibilityChanged));
 
         // Selecting a row is how the current layer is chosen, so the list has
-        // to start on whatever the drawing says that is.
-        if ((uint)drawing.CurrentLayerIndex < (uint)_layers.Count)
-            LayerList.SelectedIndex = drawing.CurrentLayerIndex;
+        // to start on whatever the drawing says that is -- by index, since a
+        // filtered row's position is not its index.
+        LayerList.SelectedItem = _layers.FirstOrDefault(row => row.Index == drawing.CurrentLayerIndex);
+
+        UpdateLayerFilter();
+    }
+
+    /// <summary>
+    /// Re-runs the filter and says how much of the list it is showing.
+    /// </summary>
+    /// <remarks>
+    /// The count carries both numbers while anything is hidden. A panel that
+    /// showed "3" with no hint that there were another forty-six would have
+    /// the user hunting for a layer that is right there.
+    /// </remarks>
+    private void UpdateLayerFilter()
+    {
+        if (!_ready) return;
+
+        string filter = LayerFilterBox.Text.Trim();
+        _layerView?.Refresh();
+
+        int shown = _layers.Count(row => row.Matches(filter));
+
+        LayerCountText.Text = shown == _layers.Count
+            ? _layers.Count.ToString()
+            : $"{shown} / {_layers.Count}";
+
+        LayerFilterPrompt.Visibility = LayerFilterBox.Text.Length == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        LayerFilterClear.Visibility = LayerFilterBox.Text.Length == 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
 
         UpdateLayerButtons();
     }
+
+    private void OnLayerFilterChanged(object sender, TextChangedEventArgs e) => UpdateLayerFilter();
+
+    private void OnClearLayerFilter(object sender, RoutedEventArgs e) => ClearLayerFilter();
+
+    /// <summary>Escape empties the box, as it does everywhere else here.</summary>
+    private void OnLayerFilterKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+
+        ClearLayerFilter();
+        e.Handled = true;
+    }
+
+    private void ClearLayerFilter()
+    {
+        if (LayerFilterBox.Text.Length == 0) return;
+
+        LayerFilterBox.Clear();
+
+        // Back to the drawing: the box has done its job and the next
+        // keystroke almost certainly belongs to a tool.
+        Canvas.Focus();
+    }
+
+    /// <summary>
+    /// Which layer the selected row is, or -1. The row's position is not it:
+    /// the list is filtered.
+    /// </summary>
+    private int SelectedLayerIndex =>
+        LayerList.SelectedItem is LayerItem row ? row.Index : -1;
 
     /// <summary>
     /// Greys the delete button when the selected layer is one that cannot
@@ -510,7 +579,7 @@ public partial class MainWindow : Window
     private void UpdateLayerButtons()
     {
         bool hasDrawing = Canvas.Drawing is not null;
-        int index = LayerList.SelectedIndex;
+        int index = SelectedLayerIndex;
 
         LayerNewButton.IsEnabled = hasDrawing;
         LayerEditButton.IsEnabled = hasDrawing && index >= 0;
@@ -531,7 +600,10 @@ public partial class MainWindow : Window
 
         if (Canvas.AddLayer(dialog.Result) is not { } layer) return;
 
-        // A layer made on purpose is the one about to be drawn on.
+        // A layer made on purpose is the one about to be drawn on -- and a
+        // filter left over from finding something else would hide it.
+        ClearLayerFilter();
+
         drawing.CurrentLayerIndex = drawing.Layers.IndexOf(layer);
         PopulateLayers(drawing);
     }
@@ -545,7 +617,7 @@ public partial class MainWindow : Window
     {
         if (Canvas.Drawing is not { } drawing) return;
 
-        int index = LayerList.SelectedIndex;
+        int index = SelectedLayerIndex;
         if ((uint)index >= (uint)drawing.Layers.Count) return;
 
         var properties = LayerProperties.Of(drawing.Layers[index]);
@@ -559,7 +631,7 @@ public partial class MainWindow : Window
 
     private void OnDeleteLayer(object sender, RoutedEventArgs e)
     {
-        int index = LayerList.SelectedIndex;
+        int index = SelectedLayerIndex;
         if (index < 0) return;
 
         // The button is greyed for these, so reaching here means the drawing
@@ -579,9 +651,12 @@ public partial class MainWindow : Window
     {
         if (!_ready) return;
         if (Canvas.Drawing is not { } drawing) return;
-        if (LayerList.SelectedIndex < 0) return;
 
-        drawing.CurrentLayerIndex = LayerList.SelectedIndex;
+        // Filtering a row out deselects it, and that is not the user saying
+        // they no longer have a current layer.
+        if (SelectedLayerIndex < 0) return;
+
+        drawing.CurrentLayerIndex = SelectedLayerIndex;
 
         UpdateLayerButtons();
         UpdateStatus();
