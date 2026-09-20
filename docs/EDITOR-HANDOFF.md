@@ -1,8 +1,9 @@
 ﻿# Handoff: the reader is done, the editor draws
 
 Written at commit `1325ee0` and updated as the milestones land; current as of
-`f1bd651`. Everything below is either in the repo or in the commit messages;
-this is the map, not a second copy.
+the grips, dimensions, layer editing and corner work below. Everything here
+is either in the repo or in the commit messages; this is the map, not a
+second copy.
 
 ## Start here
 
@@ -21,7 +22,7 @@ Picking this up cold, read in this order:
 3. `tests/FreeDwg.Tests/README.md`, before touching anything the render tests
    cover.
 
-439 tests pass in about a second. Two kinds of them exist because ordinary
+582 tests pass in about a second. Two kinds of them exist because ordinary
 tests could not catch what they catch: the render tests assert **pixels at
 world coordinates**, because three bugs so far were invisible to the object
 model; and `StartupTests` runs the real executable and waits for a **window**,
@@ -54,15 +55,102 @@ the editor phase.
 | E4 | `6d0f6d7` `71e381c` | polar tracking, measured from the last segment |
 | — | `c76a19b` | tangent and perpendicular aim at the object, not at the answer |
 | E4 | `f1bd651` | typed lengths, and document units |
+| E3 | — | grips: handles on the selection, stretch and move |
+| E4 | — | dimensions: linear, aligned, radius and diameter |
+| E4 | — | fillet and chamfer on a polyline corner; sizes typed on the canvas |
+| — | — | layers: new, delete, rename, recolour |
 | E5 | — | **save — not started** |
 
-E1 and E2 are done. E3 is done but for grips. E4 is done but for polygon,
-text, hatch, spline, block insertion, offset, array and explode. E5 has not
-been started.
+E1, E2 and E3 are done. E4 is done but for polygon, text, hatch, spline,
+block insertion, offset, array and explode. E5 has not been started.
+
+Dimensions and layer editing arrived after the milestone list was written and
+do not fit a letter: dimensioning was always filed under E5 because writing
+one back is E5's problem, but *drawing* one never was.
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
 record a wrong first attempt and why it was wrong.
+
+**Dimensions.** `SDimension` is a real entity: two origins, a point the
+dimension line runs through, and everything else worked out from them. A
+`Linear` one measures the separation of its origins along a fixed axis, so a
+horizontal dimension across two points at different heights gives the
+horizontal gap and the extension lines make up the difference; an `Aligned`
+one reads its axis off its own origins, so it gives the true distance and
+stays aligned when a grip moves one of them. `DimensionMath` is the layout,
+as arithmetic, with no sink near it -- which matters because a dimension is a
+dozen coincidences that all have to agree at once.
+
+Three things worth knowing. Each extension line takes its own direction
+towards its own end of the dimension line, not a direction shared by the
+pair: the dimension line can lie *between* the two origins, and a shared
+direction leaves one of them hanging in mid air short of the line it exists
+to meet. The number sits above its own line unconditionally -- not on the far
+side from the geometry -- because that is the side it is read from, which is
+what every drawing shows and what the first version of this got wrong. And
+the ISO sizes are millimetres of paper, so `DimensionStyle.For` converts them
+into the drawing's units rather than copying the numbers, which is the
+difference between a dimension and an invisible one in a drawing measured in
+metres.
+
+A dimension with no room for its own marks turns them out, which is what a
+chamfer of five millimetres needs: two 2.5 arrowheads head to head meet
+exactly and paint a solid diamond rather than a measurement. `DimensionMath.
+Fit` decides it, and it is two separate questions -- the arrows run out of
+room *along* the line and the number runs out of room *across* the extension
+lines, so a small feature usually wants the arrows out and the number left
+where it is. The arrow tips never move. What moves is which way the bodies
+face, and the drawn line then runs past the measured ends to give them
+something to sit on: `DimensionFit.StrokeStart` and the geometry's
+`LineStart` are deliberately different points.
+
+Radius and diameter measure an object rather than two points, which is the
+one case where a tool's first click is aimed at something and its second is
+a point. That is `CanvasTool.WantsEntity`, asked per click rather than
+answered once from the kind of tool -- a draw tool never wants an object and
+an entity tool always does, and nothing before this changed its mind
+half way through. The tool holds the centre and the radius rather than the
+object it read them from, so it still has no reference into the drawing.
+
+There is no DIMSCALE, so a drawing meant for 1:100 gets text sized for 1:1.
+Angular, baseline and continue are not written. And **imported DIMENSIONs
+still arrive as exploded anonymous blocks**: the reader was never changed,
+because the two only have to be reconciled when one is written back, which
+is E5.
+
+Dimensions have a palette group of their own rather than a corner of Draw,
+which is where AutoCAD puts them and what a drawing office does with them:
+they are annotation, they go on their own layer, and they are reached for as
+a job of their own once the geometry is finished.
+
+**Fillet and chamfer work on a polyline.** Two clicks on two segments of the
+same polyline round or cut the vertex they share, and it stays one polyline:
+the corner becomes the two tangent points, with the arc between them held as
+a bulge. Exploding first was thought to be the prerequisite and is not --
+and a rounded rectangle that is still a rectangle is worth more than one
+that has become four lines and an arc. The closed polyline's wrap is
+handled, since otherwise the corner where a rectangle joins up is the one
+corner that cannot be rounded. Two things are still refused rather than
+approximated: a corner that already carries an arc (a tangent circle to a
+curve is a different problem) and a size that would eat past the next vertex.
+
+The fillet radius and the chamfer distance are typed **on the canvas** now,
+in the same box the length goes in -- `CursorEntry` says which of the three
+it is showing. They are also two separate numbers: sharing one meant that
+setting a 2 mm chamfer silently made every later fillet 2 mm as well.
+
+**Layers are editable.** New, delete, rename, recolour, and the three
+switches, all through the command stack. Two things make this less trivial
+than it sounds. An entity names its layer by *position*, so deleting one
+renumbers every entity in every layout, the contents of every block
+definition, every viewport's frozen-layer set and the current layer --
+`LayerTable` does that in one place, and a layer with anything still on it is
+refused outright rather than guessing whether the geometry should be erased
+or moved. And because ByLayer is resolved away at import, recolouring a layer
+has to go and recolour its entities or the swatch and the drawing disagree;
+`ChangeLayer` restyles the ones still drawn in the layer's old style, which is
+exactly the set that was following it, and leaves an explicit override alone.
 
 **Entities understood today:** LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE,
 POLYLINE2D/3D, SPLINE, TEXT, MTEXT, HATCH, SOLID, INSERT (incl. MINSERT),
@@ -201,7 +289,7 @@ itself from them, which is where this kind of bookkeeping goes wrong.
 entity order is painting order: an entity restored on top of what it used to
 sit under has not really been restored.
 
-**E3 — Modify tools. Done for the transform family; grips still to come.**
+**E3 — Modify tools. Done.**
 Move, copy, rotate, scale and mirror all work on the selection, through the
 command stack, with a live preview and undo.
 
@@ -230,8 +318,52 @@ the whole point of one. A clone carries no `SourceHandle`: it was never in
 the file, and giving it the original's handle would have a save overwrite the
 original with the copy.
 
-Still to come here: grips proper, which move single vertices rather than
-whole objects, and which is what Stretch is waiting for.
+**Grips.** Handles on the selection, dragged to reshape one object rather
+than transform a set of them. A grip is one of two things and the enum says
+which: a `Move` grip drags the whole entity, which is a translation and goes
+through `TransformEntities`; a `Shape` grip changes the geometry, and goes
+through `ReplaceEntities` after being applied to a *clone*. That second
+route is the properties panel's, reused: it is what makes a stretch undoable
+without every entity needing a way to save and restore its own geometry, and
+`EditPlan.Replace` carries the handle across so the file still recognises
+the object.
+
+`CollectGrips` is the fourth thing entities do for themselves, and
+`MoveGrip` is a non-virtual wrapper over `MoveGripGeometry` for the same
+reason `Transform` is over `TransformGeometry` -- a stretched entity that
+kept its cached bounds would be culled where it used to be. Which handles
+each kind offers is its own business: a line gives two ends and a middle
+that moves the whole thing, a circle a centre and four quadrants that are
+all the same radius, an arc its three defining points, a polyline every
+vertex plus the midpoint of every *bulged* segment, a spline its control
+points, a hatch nothing at all.
+
+The arc is re-solved through three points, the way the arc tool builds one,
+so the middle point is what says which way round it goes and a dragged end
+cannot flip the sweep quietly. Dragging a bulge midpoint across its chord
+turns that segment the other way, which is the same fact stated as
+`tan(sweep / 4)`.
+
+Where the handles are is `GripSet`, in Core: it collects them off a
+selection and answers which one a world point is nearest, which is the half
+worth testing. What is left in `CadCanvas` is squares of a fixed pixel size
+in device space, because a grip is a target for the mouse and has to stay
+the same size to aim at however far the view is zoomed out. `GripSet` stops
+offering handles past a hundred selected objects, as AutoCAD does: a
+crossing window over a drawing would otherwise bury the geometry under
+squares nobody could pick out.
+
+Taking hold of a grip is not a mode. It is what a left press does when the
+cursor is on one, which meant the canvas needed a single answer to what the
+left button is in the middle of -- `LeftGesture`, one enum covering pick,
+band and grip, for exactly the reason `Mode` is one enum. The drag snaps
+like any other point, measures ortho and polar from where the grip started,
+and takes a typed length: aim it and type 50.
+
+Known gaps: an elliptical arc offers its axis handles but not its ends; a
+viewport offers none, since resizing one has to answer what happens to the
+view inside it; and a polyline vertex cannot yet be added or removed, only
+moved.
 
 **E4 — Draw tools and snapping. Mostly done.** Line, polyline, rectangle,
 circle, three-point arc and ellipse all draw, on the current layer, through
@@ -506,18 +638,28 @@ It is not needed before E5.
 ## Where to go next, ranked
 
 1. **E5, save.** Nothing else changes what this program *is*. Start with the
-   `DwgSession` described above; the writer is the easy half.
+   `DwgSession` described above; the writer is the easy half. Note that the
+   change log now reports layers as well as entities, and that `SDimension`
+   and the imported exploded-block dimensions have to be reconciled there.
 2. **Explode.** The smallest piece that unlocks another: trim and extend
    handle lines, arcs and circles only, so a polyline has to be broken up
    first, and today there is no way to break one up.
-3. **Grips.** E3's last piece and what Stretch is waiting for. Moving one
-   vertex rather than a whole object is the edit people reach for most, and
-   it will want somewhere better for overlay geometry to live than device
-   space inside `CadCanvas`.
-4. **The rest of numeric entry** -- an angle field, and XY. Lengths alone
-   already cover most of drawing to size, which is why this sits below grips
-   rather than above them.
-5. **The remaining draw tools**, in the order the palette lists them.
+3. **The rest of numeric entry** -- an angle field, and XY. Lengths alone
+   already cover most of drawing to size, and they now finish a grip drag as
+   well as a picked point.
+4. **The remaining draw tools**, in the order the palette lists them.
+5. **Multi-object stretch.** Grips move one object at a time. The crossing
+   window that takes every vertex inside it and moves the lot is a different
+   command, and wants the grip set to hold a selection of *handles* rather
+   than a hot one.
+6. **Angular, baseline and continue dimensions.** The buttons are on the
+   palette already, greyed, each saying in its tooltip what it is waiting
+   for. Angular needs a dimension line that is an arc, which is a second
+   layout rather than a variation on the linear one; baseline and continue
+   need to pick an existing dimension to carry on from.
+7. **A dimension style dialog**, and DIMSCALE with it. The sizes are a
+   `DimensionStyle` on each dimension and a default on the canvas, so there
+   is somewhere for one to write to.
 
 ## Traps already paid for
 

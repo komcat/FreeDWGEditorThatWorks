@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -24,6 +25,9 @@ public sealed class SArc : SceneEntity
 
     public Vec2 StartPoint => ArcMath.PointAt(Center, Radius, StartAngle);
     public Vec2 EndPoint => ArcMath.PointAt(Center, Radius, StartAngle + Sweep);
+
+    /// <summary>The point halfway round the sweep, not halfway along the chord.</summary>
+    public Vec2 MidPoint => ArcMath.PointAt(Center, Radius, StartAngle + Sweep / 2);
 
     protected override Bounds2 ComputeBounds() =>
         ArcMath.Bounds(Center, Radius, StartAngle, Sweep);
@@ -65,8 +69,7 @@ public sealed class SArc : SceneEntity
         }
 
         if (modes.HasFlag(SnapModes.Midpoint))
-            into.Add(new SnapCandidate(
-                ArcMath.PointAt(Center, Radius, StartAngle + Sweep / 2), SnapKind.Midpoint));
+            into.Add(new SnapCandidate(MidPoint, SnapKind.Midpoint));
 
         if (modes.HasFlag(SnapModes.Center))
             into.Add(new SnapCandidate(Center, SnapKind.Center));
@@ -81,6 +84,46 @@ public sealed class SArc : SceneEntity
             if (ArcMath.Contains(angle, StartAngle, Sweep))
                 into.Add(new SnapCandidate(ArcMath.PointAt(Center, Radius, angle), SnapKind.Quadrant));
         }
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        into.Add(new Grip(Center, GripRole.Move));
+        if (Radius <= 0 || Math.Abs(Sweep) < 1e-12) return;
+
+        into.Add(new Grip(StartPoint, GripRole.Shape, 0));
+        into.Add(new Grip(EndPoint, GripRole.Shape, 1));
+        into.Add(new Grip(MidPoint, GripRole.Shape, 2));
+    }
+
+    protected override bool MoveGripGeometry(in Grip grip, Vec2 to)
+    {
+        if ((uint)grip.Index > 2) return false;
+
+        // Re-solved through three points, which is how the arc tool builds
+        // one in the first place. The point in the middle is what says which
+        // way round the arc goes, so a dragged end cannot quietly flip the
+        // sweep -- the trap this codebase has already paid for twice.
+        var (start, through, end) = grip.Index switch
+        {
+            0 => (to, MidPoint, EndPoint),
+            1 => (StartPoint, MidPoint, to),
+            _ => (StartPoint, to, EndPoint),
+        };
+
+        if (!ArcMath.TryArcThrough(start, through, end,
+                out var center, out double radius, out double startAngle, out double sweep))
+        {
+            // Three points in a line are not an arc. The drag does nothing
+            // rather than collapsing the entity into a degenerate one.
+            return false;
+        }
+
+        Center = center;
+        Radius = radius;
+        StartAngle = startAngle;
+        Sweep = sweep;
+        return true;
     }
 
     protected override void TransformGeometry(in Mat3 transform)

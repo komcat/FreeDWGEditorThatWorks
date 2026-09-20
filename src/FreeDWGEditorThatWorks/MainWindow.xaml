@@ -160,8 +160,6 @@
                                          Tag="{StaticResource Icon.Text}" ToolTip="Text  -  needs an editor to type into on the canvas" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Block}" ToolTip="Insert block  -  needs a chooser for the definitions the drawing already holds" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Dimension}" ToolTip="Dimension  -  needs real dimension layout, which is E5" />
                         </UniformGrid>
 
                         <Separator Margin="4,8" Background="{StaticResource Tool.Divider}" />
@@ -189,15 +187,43 @@
                             <RadioButton x:Name="ExtendButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Extend}" ToolTip="Extend  -  click near the end to push out to its neighbour" />
                             <RadioButton x:Name="FilletButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
-                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  click two lines on the sides to keep. Radius 0 makes a sharp corner" />
+                                         Tag="{StaticResource Icon.Fillet}" ToolTip="Fillet  -  click two edges on the sides to keep, or two segments of one polyline. Type a number to set the radius; 0 makes a sharp corner" />
                             <RadioButton x:Name="ChamferButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
-                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  click two lines on the sides to keep" />
+                                         Tag="{StaticResource Icon.Chamfer}" ToolTip="Chamfer  -  click two edges on the sides to keep, or two segments of one polyline. Type a number to set how far back it cuts" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  arrives with grips, which move single vertices rather than whole objects" />
+                                         Tag="{StaticResource Icon.Stretch}" ToolTip="Stretch  -  a crossing window that moves every vertex inside it. Single vertices already move: select an object and drag a grip" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Explode}" ToolTip="Explode  -  needs breaking a block or a polyline into its parts" />
                             <RadioButton x:Name="TangentButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Tangent}" ToolTip="Tangent  -  click a circle, then a line it should sit against" />
+                        </UniformGrid>
+
+                        <!--
+                            Dimensions get a group of their own rather than a
+                            corner of Draw, which is where AutoCAD puts them
+                            and what a drawing office actually does with them:
+                            they are annotation, they go on their own layer,
+                            and they are reached for as a job of their own
+                            once the geometry is finished.
+                        -->
+                        <Separator Margin="4,8" Background="{StaticResource Tool.Divider}" />
+                        <TextBlock Text="Dimensions" Style="{StaticResource PaletteGroupLabel}" />
+
+                        <UniformGrid Columns="3" Width="108" HorizontalAlignment="Center">
+                            <RadioButton x:Name="DimensionButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Dimension}" ToolTip="Linear  -  pick two points, then pull the line out. Above or below measures across, to the side measures up" />
+                            <RadioButton x:Name="AlignedDimensionButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.DimensionAligned}" ToolTip="Aligned  -  the true distance between two points, parallel to them" />
+                            <RadioButton x:Name="RadiusDimensionButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.DimensionRadius}" ToolTip="Radius  -  click a circle or an arc, then say where the number goes" />
+                            <RadioButton x:Name="DiameterDimensionButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.DimensionDiameter}" ToolTip="Diameter  -  the same, measured right across" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.DimensionAngular}" ToolTip="Angular  -  needs a dimension line that is an arc, which is a second layout rather than a variation on this one" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.DimensionBaseline}" ToolTip="Baseline  -  a run of dimensions from one origin. Needs to pick an existing dimension to continue from" />
+                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
+                                         Tag="{StaticResource Icon.DimensionContinue}" ToolTip="Continue  -  the same, end to end instead of stacked" />
                         </UniformGrid>
                     </StackPanel>
                 </ScrollViewer>
@@ -324,14 +350,30 @@
                               Background="Transparent" />
 
                 <DockPanel Grid.Row="2">
-                    <Grid DockPanel.Dock="Top" Margin="2,2,2,6">
+                    <Grid DockPanel.Dock="Top" Margin="2,2,2,4">
                         <TextBlock Text="Layers" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock x:Name="LayerCountText" HorizontalAlignment="Right" Opacity="0.6"
-                                   VerticalAlignment="Center" />
+
+                        <!--
+                            New, properties, delete, then the count. Every one
+                            of them goes through the command stack, so a layer
+                            made or renamed by mistake is one Ctrl+Z away like
+                            anything else.
+                        -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="LayerNewButton" Style="{StaticResource PanelButton}" Click="OnNewLayer"
+                                    Tag="{StaticResource Icon.LayerNew}" ToolTip="New layer" />
+                            <Button x:Name="LayerEditButton" Style="{StaticResource PanelButton}" Click="OnEditLayer"
+                                    Tag="{StaticResource Icon.LayerEdit}" ToolTip="Layer properties  -  or double-click the row" />
+                            <Button x:Name="LayerDeleteButton" Style="{StaticResource PanelButton}" Click="OnDeleteLayer"
+                                    Tag="{StaticResource Icon.LayerDelete}" ToolTip="Delete layer  -  only one with nothing drawn on it" />
+                            <TextBlock x:Name="LayerCountText" Opacity="0.6" Margin="6,0,2,0"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
                     </Grid>
 
                 <ListBox x:Name="LayerList" BorderThickness="1"
                          SelectionChanged="OnLayerSelected"
+                         MouseDoubleClick="OnLayerDoubleClick"
                          HorizontalContentAlignment="Stretch"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
@@ -375,18 +417,19 @@
                 <ctl:CadCanvas x:Name="Canvas" Grid.Row="0" />
 
                 <!--
-                    The length of the run being drawn, typed over the
+                    The number the tool in hand is working to, typed over the
                     drawing rather than in a corner of the window: the eye is
                     on the cursor, and a measurement shown anywhere else is
-                    one nobody reads while drawing.
+                    one nobody reads while drawing. The caption says which
+                    number it is: a length, a fillet radius, a chamfer.
                 -->
                 <Border x:Name="LengthOverlay" Grid.Row="0" Visibility="Collapsed"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
                         Background="#F21E2530" BorderBrush="#FF5AAFFF" BorderThickness="1"
                         CornerRadius="3" Padding="6,3" Panel.ZIndex="10">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Length" Foreground="#FF9FB3C8" VerticalAlignment="Center"
-                                   Margin="0,0,6,0" />
+                        <TextBlock x:Name="LengthCaption" Text="Length" Foreground="#FF9FB3C8"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBox x:Name="LengthBox" MinWidth="76" Background="Transparent"
                                  Foreground="White" BorderThickness="0" CaretBrush="White"
                                  VerticalContentAlignment="Center"

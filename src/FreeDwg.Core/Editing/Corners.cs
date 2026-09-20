@@ -14,9 +14,17 @@ namespace FreeDwg.Core.Editing;
 /// line says which side survives, which is how AutoCAD has always done it and
 /// why it needs no further questions.
 /// <para>
-/// Lines only. Arc-to-line and arc-to-arc fillets are a solvable but much
-/// larger problem -- a tangent circle to two arbitrary curves -- and the two
-/// straight lines case is the overwhelming majority of real use.
+/// Straight edges only. Arc-to-line and arc-to-arc fillets are a solvable but
+/// much larger problem -- a tangent circle to two arbitrary curves -- and the
+/// two straight edges case is the overwhelming majority of real use.
+/// </para>
+/// <para>
+/// Two separate entities become three (two shortened, one joining them). Two
+/// segments of the <em>same polyline</em> stay one entity: the corner vertex
+/// is replaced by the two tangent points, and the arc rides between them as a
+/// bulge. That is better than exploding the polyline first, which is what
+/// this was waiting on: a rectangle with a rounded corner is still a
+/// rectangle, and it still has the handle the file knows it by.
 /// </para>
 /// </remarks>
 public static class Corners
@@ -105,6 +113,148 @@ public static class Corners
 
         var plan = Join(first, keepFirst, cutFirst, second, keepSecond, cutSecond);
         return new EditPlan(plan.Removed, [.. plan.Added, bridge]);
+    }
+
+    /// <summary>
+    /// Rounds the corner of a polyline where two of its own segments meet,
+    /// leaving it one polyline.
+    /// </summary>
+    /// <remarks>
+    /// The two picks say which segments, and the corner is the vertex they
+    /// share. Anything else -- the same segment twice, two that do not touch,
+    /// or either end of an open run -- is not a corner and is left alone.
+    /// </remarks>
+    public static EditPlan Fillet(SPolyline polyline, Vec2 firstPick, Vec2 secondPick, double radius) =>
+        Corner(polyline, firstPick, secondPick, radius, rounded: true);
+
+    /// <summary>Cuts that same corner off straight instead.</summary>
+    public static EditPlan Chamfer(SPolyline polyline, Vec2 firstPick, Vec2 secondPick, double distance) =>
+        Corner(polyline, firstPick, secondPick, distance, rounded: false);
+
+    private static EditPlan Corner(SPolyline polyline, Vec2 firstPick, Vec2 secondPick,
+        double size, bool rounded)
+    {
+        if (size <= 0) return EditPlan.Nothing;
+
+        int first = polyline.NearestSegment(firstPick);
+        int second = polyline.NearestSegment(secondPick);
+
+        return SharedVertex(polyline, first, second, out int vertex)
+            ? Corner(polyline, vertex, size, rounded)
+            : EditPlan.Nothing;
+    }
+
+    /// <summary>
+    /// The vertex two segments have in common, if they have one.
+    /// </summary>
+    /// <remarks>
+    /// Segment k runs from vertex k to vertex k+1, so consecutive segments
+    /// share the vertex between them -- and on a closed polyline the last and
+    /// the first share vertex zero, which is the corner of a rectangle that
+    /// would otherwise be the one you cannot round.
+    /// </remarks>
+    private static bool SharedVertex(SPolyline polyline, int first, int second, out int vertex)
+    {
+        vertex = -1;
+
+        int segments = polyline.Closed ? polyline.Vertices.Length : polyline.Vertices.Length - 1;
+        if (first < 0 || second < 0 || first == second || segments < 2) return false;
+
+        int low = Math.Min(first, second);
+        int high = Math.Max(first, second);
+
+        if (high - low == 1)
+        {
+            vertex = high;
+            return true;
+        }
+
+        if (polyline.Closed && low == 0 && high == segments - 1)
+        {
+            vertex = 0;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static EditPlan Corner(SPolyline polyline, int vertex, double size, bool rounded)
+    {
+        var vertices = polyline.Vertices;
+        int count = vertices.Length;
+
+        if (!polyline.Closed && (vertex <= 0 || vertex >= count - 1)) return EditPlan.Nothing;
+
+        int before = (vertex - 1 + count) % count;
+        int after = (vertex + 1) % count;
+
+        // Filleting into an existing arc is a different problem -- a tangent
+        // circle to a curve rather than to two lines -- so a corner that
+        // already has one is left alone rather than approximated.
+        if (Math.Abs(vertices[before].Bulge) > 1e-12 || Math.Abs(vertices[vertex].Bulge) > 1e-12)
+            return EditPlan.Nothing;
+
+        Vec2 corner = vertices[vertex].Point;
+        Vec2 incoming = corner - vertices[before].Point;
+        Vec2 outgoing = vertices[after].Point - corner;
+
+        double inLength = incoming.Length;
+        double outLength = outgoing.Length;
+        if (inLength < 1e-12 || outLength < 1e-12) return EditPlan.Nothing;
+
+        Vec2 into = incoming / inLength;
+        Vec2 outOf = outgoing / outLength;
+
+        double cross = Vec2.Cross(into, outOf);
+        double dot = Vec2.Dot(into, outOf);
+        double turn = Angle(into, outOf);
+
+        // Straight through, or doubled back on itself: no corner either way.
+        if (turn < 1e-9 || turn > Math.PI - 1e-9) return EditPlan.Nothing;
+
+        // How far back from the corner each side is cut. For a round the
+        // radius has to come out right, which is r * tan(half the turn); for
+        // a chamfer the distance is the distance.
+        //
+        // The half-angle comes from the cross and the dot rather than from
+        // tan(acos(...)/2): the round trip through an angle costs the last
+        // couple of digits, and a right angle -- which is most corners
+        // anybody fillets -- then sets back by 9.999999999999998 instead of
+        // by the radius they asked for.
+        double setback = rounded ? size * (Math.Abs(cross) / (1 + dot)) : size;
+
+        // Eating past the neighbouring vertex would move a corner that was
+        // not the one picked.
+        if (setback <= 0 || setback > inLength || setback > outLength) return EditPlan.Nothing;
+
+        // tan(sweep / 4), and the sweep turns whichever way the corner does:
+        // get the sign wrong and the arc bulges out of the shape instead of
+        // rounding it, with both ends still exactly where they belong.
+        double bulge = rounded ? Math.Tan(Math.Sign(cross) * turn / 4) : 0;
+
+        var moved = new List<PolyVertex>(count + 1);
+        for (int i = 0; i < count; i++)
+        {
+            if (i != vertex)
+            {
+                moved.Add(vertices[i]);
+                continue;
+            }
+
+            // The one corner becomes the two tangent points, and whatever the
+            // segment leaving it was doing carries on from the second.
+            moved.Add(new PolyVertex(corner - into * setback, bulge));
+            moved.Add(new PolyVertex(corner + outOf * setback, vertices[i].Bulge));
+        }
+
+        var replacement = new SPolyline([.. moved], polyline.Closed)
+        {
+            LayerIndex = polyline.LayerIndex,
+            Style = polyline.Style,
+            Inherits = polyline.Inherits,
+        };
+
+        return EditPlan.Replace(polyline, replacement);
     }
 
     /// <summary>

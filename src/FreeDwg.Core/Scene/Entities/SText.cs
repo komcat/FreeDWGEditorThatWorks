@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -166,6 +167,12 @@ public sealed class SText : SceneEntity
         if (modes.HasFlag(SnapModes.Endpoint))
             into.Add(new SnapCandidate(Position, SnapKind.Endpoint));
     }
+
+    public override void CollectGrips(ICollection<Grip> into) =>
+        // The insertion point, and only that. Height, rotation and the rest
+        // are numbers rather than places, and the properties panel edits
+        // them where they can be typed exactly.
+        into.Add(new Grip(Position, GripRole.Move));
 
     protected override void TransformGeometry(in Mat3 transform)
     {

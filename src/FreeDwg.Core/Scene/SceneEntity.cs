@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Snapping;
@@ -85,6 +86,52 @@ public abstract class SceneEntity
     /// derived rather than drawn -- offers none.
     /// </remarks>
     public abstract void CollectSnapPoints(SnapModes modes, ICollection<SnapCandidate> into);
+
+    /// <summary>
+    /// Offers the handles this entity can be reshaped by, in world
+    /// coordinates. The fourth thing entities do for themselves, after
+    /// emitting, hit testing and offering snap points.
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="GripRole.Move"/> grip drags the whole entity and needs
+    /// nothing else from it; a <see cref="GripRole.Shape"/> grip is answered
+    /// by <see cref="MoveGrip"/> and the index is whatever that method wants
+    /// to read. An entity whose outline is derived rather than drawn -- a
+    /// hatch, whose boundary is already flattened -- offers none, for the
+    /// same reason it offers no snap points.
+    /// </remarks>
+    public abstract void CollectGrips(ICollection<Grip> into);
+
+    /// <summary>
+    /// Moves one of this entity's own grips to <paramref name="to"/>, in
+    /// place. False if the grip is not one this entity offered, or if the
+    /// result would not be a shape.
+    /// </summary>
+    /// <remarks>
+    /// Not virtual, for the reason <see cref="Transform"/> is not: the
+    /// override is <see cref="MoveGripGeometry"/> and this wrapper drops the
+    /// bounds cache, so a stretched entity cannot be left culled where it
+    /// used to be.
+    /// <para>
+    /// Callers apply this to a <see cref="Clone"/> and swap it in through
+    /// <c>ReplaceEntities</c>, which is what makes a grip drag undoable
+    /// without every entity needing a way to save and restore its geometry.
+    /// </para>
+    /// </remarks>
+    public bool MoveGrip(in Grip grip, Vec2 to)
+    {
+        if (!MoveGripGeometry(grip, to)) return false;
+
+        InvalidateBounds();
+        return true;
+    }
+
+    /// <summary>
+    /// Applies a shape grip. Entities offering only
+    /// <see cref="GripRole.Move"/> grips need no override: a move is a
+    /// translation and goes through <see cref="Transform"/> instead.
+    /// </summary>
+    protected virtual bool MoveGripGeometry(in Grip grip, Vec2 to) => false;
 
     /// <summary>
     /// Offers this entity's geometry as segments and arcs, which is what

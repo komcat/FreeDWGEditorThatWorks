@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -141,6 +142,12 @@ public sealed class SInsert : SceneEntity
         foreach (var candidate in local)
             into.Add(candidate with { Point = Placement.Transform(candidate.Point) });
     }
+
+    public override void CollectGrips(ICollection<Grip> into) =>
+        // The insertion point. Scale and rotation live in the placement
+        // matrix, and a handle that reached into one would be editing the
+        // reference rather than moving it.
+        into.Add(new Grip(Placement.Transform(Vec2.Zero), GripRole.Move));
 
     protected override void TransformGeometry(in Mat3 transform)
     {

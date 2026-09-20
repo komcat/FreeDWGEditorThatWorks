@@ -40,6 +40,18 @@ public abstract class CanvasTool
     /// </summary>
     public virtual bool NeedsSelection => false;
 
+    /// <summary>
+    /// Whether the <em>next</em> click is pointing at an object rather than
+    /// placing a point.
+    /// </summary>
+    /// <remarks>
+    /// A question rather than a type test, because it changes during a tool:
+    /// a radius dimension takes a circle and then a point, and the canvas
+    /// has to ask before each click rather than decide once from what kind
+    /// of tool it is holding.
+    /// </remarks>
+    public virtual bool WantsEntity => false;
+
     public virtual void Cancel() => _points.Clear();
 
     protected void AddPoint(Vec2 point) => _points.Add(point);

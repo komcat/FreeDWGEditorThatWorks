@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -87,7 +88,23 @@ public sealed class SPolyline : SceneEntity
         if (Vertices.Length == 0) return double.PositiveInfinity;
         if (Vertices.Length == 1) return Vec2.Distance(point, Vertices[0].Point);
 
-        double best = double.PositiveInfinity;
+        return NearestSegment(point, out double distance) < 0 ? double.PositiveInfinity : distance;
+    }
+
+    /// <summary>
+    /// Which segment <paramref name="point"/> is nearest to, and how near.
+    /// -1 when there are no segments at all.
+    /// </summary>
+    /// <remarks>
+    /// The index as well as the distance, because filleting a polyline needs
+    /// to know <em>which</em> corner was pointed at, and working it out again
+    /// at the call site would be a second copy of the bulge handling below --
+    /// the copy that gets it wrong and measures an arc by its chord.
+    /// </remarks>
+    public int NearestSegment(Vec2 point, out double distance)
+    {
+        distance = double.PositiveInfinity;
+        int best = -1;
 
         for (int i = 0; i < SegmentCount; i++)
         {
@@ -109,11 +126,17 @@ public sealed class SPolyline : SceneEntity
                     : Distance.PointToSegment(point, from.Point, to);
             }
 
-            if (d < best) best = d;
+            if (d >= distance) continue;
+
+            distance = d;
+            best = i;
         }
 
         return best;
     }
+
+    /// <summary>Convenience for callers that only want the index.</summary>
+    public int NearestSegment(Vec2 point) => NearestSegment(point, out _);
 
     public override bool IntersectsRect(Bounds2 rect, in PickContext context)
     {
@@ -178,6 +201,61 @@ public sealed class SPolyline : SceneEntity
 
             if (wantsCenter) into.Add(new SnapCandidate(center, SnapKind.Center));
         }
+    }
+
+    /// <summary>
+    /// Where the midpoint grip of a segment sits in the index space:
+    /// vertices first, then one per bulged segment.
+    /// </summary>
+    private int BulgeGripIndex(int segment) => Vertices.Length + segment;
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        for (int i = 0; i < Vertices.Length; i++)
+            into.Add(new Grip(Vertices[i].Point, GripRole.Shape, i));
+
+        // The midpoint of an arc segment, which re-bulges it. A straight
+        // segment offers none: a handle that turned a line into an arc on a
+        // nudge would change what the segment is rather than where it goes.
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            var from = Vertices[i];
+            if (Math.Abs(from.Bulge) < 1e-12) continue;
+
+            Vec2 to = Vertices[(i + 1) % Vertices.Length].Point;
+            var (center, radius, startAngle, sweep) = ArcMath.FromBulge(from.Point, to, from.Bulge);
+            if (radius <= 0) continue;
+
+            into.Add(new Grip(ArcMath.PointAt(center, radius, startAngle + sweep / 2),
+                GripRole.Shape, BulgeGripIndex(i)));
+        }
+    }
+
+    protected override bool MoveGripGeometry(in Grip grip, Vec2 to)
+    {
+        if ((uint)grip.Index < (uint)Vertices.Length)
+        {
+            // The bulge belongs to the segment leaving this vertex, so it
+            // rides along: dragging the end of an arc segment keeps it an
+            // arc rather than flattening it.
+            Vertices[grip.Index] = new PolyVertex(to, Vertices[grip.Index].Bulge);
+            return true;
+        }
+
+        int segment = grip.Index - Vertices.Length;
+        if ((uint)segment >= (uint)SegmentCount) return false;
+
+        var from = Vertices[segment];
+        Vec2 next = Vertices[(segment + 1) % Vertices.Length].Point;
+
+        // A bulge is tan(sweep / 4) and the sweep is signed, so re-solving
+        // the arc through the dragged point carries the direction with it:
+        // dragging one across its chord turns the segment the other way.
+        if (!ArcMath.TryArcThrough(from.Point, to, next, out _, out _, out _, out double sweep))
+            return false;
+
+        Vertices[segment] = new PolyVertex(from.Point, Math.Tan(sweep / 4));
+        return true;
     }
 
     protected override void TransformGeometry(in Mat3 transform)

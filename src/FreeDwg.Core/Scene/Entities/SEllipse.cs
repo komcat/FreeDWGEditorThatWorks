@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -103,6 +104,49 @@ public sealed class SEllipse : SceneEntity
 
             into.Add(new SnapCandidate(
                 EllipseMath.PointAt(Center, MajorAxis, Ratio, parameter), SnapKind.Quadrant));
+        }
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        into.Add(new Grip(Center, GripRole.Move));
+        if (MajorAxis.LengthSquared <= 0) return;
+
+        // The ends of the two axes, which is what an ellipse is defined by.
+        // Offered for an elliptical arc as well, even where the curve does
+        // not reach them: the parameters are measured from the major axis
+        // either way, so these are still the handles that shape it.
+        for (int quarter = 0; quarter < 4; quarter++)
+        {
+            into.Add(new Grip(EllipseMath.PointAt(Center, MajorAxis, Ratio, quarter * (Math.PI / 2)),
+                GripRole.Shape, quarter));
+        }
+    }
+
+    protected override bool MoveGripGeometry(in Grip grip, Vec2 to)
+    {
+        Vec2 arm = to - Center;
+        if (arm.LengthSquared <= 0) return false;
+
+        switch (grip.Index)
+        {
+            // The major axis is a direction and a length at once, so an end
+            // of it goes in whole; the far end is the same axis reversed.
+            case 0: MajorAxis = arm; return true;
+            case 2: MajorAxis = -arm; return true;
+
+            // A minor-axis end is only a ratio. Letting it turn the ellipse
+            // as well would leave the two axes out of square, which is not
+            // an ellipse this model can hold.
+            case 1:
+            case 3:
+                double major = MajorAxis.Length;
+                if (major <= 0) return false;
+
+                Ratio = arm.Length / major;
+                return true;
+
+            default: return false;
         }
     }
 

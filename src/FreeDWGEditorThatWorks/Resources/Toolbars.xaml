@@ -131,6 +131,17 @@
         </Setter>
     </Style>
 
+    <!--
+        The toolbar face at panel size. Same Tag-carries-the-icon contract, so
+        the icons are the same family; only the box around them is tighter,
+        because these live in the corner of a list rather than on a toolbar.
+    -->
+    <Style x:Key="PanelButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Margin" Value="1,0" />
+    </Style>
+
     <Style x:Key="ToolBarDivider" TargetType="Rectangle">
         <Setter Property="Width" Value="1" />
         <Setter Property="Margin" Value="5,4" />

@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -87,6 +88,28 @@ public sealed class SSpline : SceneEntity
 
         into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 0), SnapKind.Endpoint));
         into.Add(new SnapCandidate(BSpline.Evaluate(ControlPoints, Weights, Knots, Degree, 1), SnapKind.Endpoint));
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        // The control points, which is the one place a spline can be taken
+        // hold of. They are not on the curve -- which is exactly why they
+        // are grips and not snap points: a handle is something to pull, a
+        // snap is somewhere to put geometry.
+        for (int i = 0; i < ControlPoints.Count; i++)
+            into.Add(new Grip(ControlPoints[i], GripRole.Shape, i));
+    }
+
+    protected override bool MoveGripGeometry(in Grip grip, Vec2 to)
+    {
+        if ((uint)grip.Index >= (uint)ControlPoints.Count) return false;
+
+        // Knots and weights are untouched: moving a control point moves the
+        // curve and nothing else about how it is parameterised.
+        var moved = ControlPoints.ToArray();
+        moved[grip.Index] = to;
+        ControlPoints = moved;
+        return true;
     }
 
     protected override void TransformGeometry(in Mat3 transform)

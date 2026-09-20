@@ -333,4 +333,180 @@ public sealed class EditingTests
 
         Assert.Null(Tangency.ToLine(circle, line));
     }
+
+    // ---- fillet and chamfer on a polyline corner ---------------------------
+
+    /// <summary>A 100 by 60 rectangle, as the rectangle tool makes one.</summary>
+    private static SPolyline Rectangle() => new(
+    [
+        new PolyVertex(new Vec2(0, 0)),
+        new PolyVertex(new Vec2(100, 0)),
+        new PolyVertex(new Vec2(100, 60)),
+        new PolyVertex(new Vec2(0, 60)),
+    ], closed: true);
+
+    [Fact]
+    public void FilletingTwoSegmentsOfAPolylineLeavesItOnePolyline()
+    {
+        var rectangle = Rectangle();
+
+        // The bottom edge and the right edge, which share the corner at
+        // (100,0). Clicked where a user would: out along each one.
+        var plan = Corners.Fillet(rectangle, new Vec2(50, 0), new Vec2(100, 30), radius: 10);
+
+        var result = Assert.IsType<SPolyline>(Assert.Single(plan.Added));
+        Assert.Same(rectangle, Assert.Single(plan.Removed));
+
+        // One corner became two vertices; nothing was exploded into pieces.
+        Assert.Equal(5, result.Vertices.Length);
+        Assert.True(result.Closed);
+    }
+
+    [Fact]
+    public void TheRoundedCornerStartsAndEndsWhereTheArcIsTangent()
+    {
+        var plan = Corners.Fillet(Rectangle(), new Vec2(50, 0), new Vec2(100, 30), radius: 10);
+        var result = (SPolyline)plan.Added[0];
+
+        // A right angle sets back by exactly the radius on each side.
+        Assert.Equal(new Vec2(90, 0), result.Vertices[1].Point);
+        Assert.Equal(new Vec2(100, 10), result.Vertices[2].Point);
+
+        // And the bulge between them is a quarter turn: tan(90 / 4).
+        Assert.Equal(Math.Tan(Math.PI / 8), result.Vertices[1].Bulge, 9);
+        Assert.Equal(0, result.Vertices[2].Bulge);
+    }
+
+    [Fact]
+    public void TheArcOfAPolylineFilletHasTheRadiusThatWasAskedFor()
+    {
+        var plan = Corners.Fillet(Rectangle(), new Vec2(50, 0), new Vec2(100, 30), radius: 10);
+        var result = (SPolyline)plan.Added[0];
+
+        // Read back out of the bulge, which is the only place it is stored:
+        // a sign or a factor wrong here draws a corner of the wrong size
+        // with both its ends still exactly where they belong.
+        var (center, radius, _, _) = ArcMath.FromBulge(
+            result.Vertices[1].Point, result.Vertices[2].Point, result.Vertices[1].Bulge);
+
+        Assert.Equal(10, radius, 9);
+        Assert.Equal(new Vec2(90, 10), center);
+    }
+
+    [Fact]
+    public void ARoundedCornerBulgesIntoTheShapeAndNotOutOfIt()
+    {
+        // The same corner from a rectangle wound the other way round. The
+        // turn reverses, so the bulge has to as well -- and the endpoints are
+        // identical either way, which is what makes this invisible until it
+        // is drawn.
+        var clockwise = new SPolyline(
+        [
+            new PolyVertex(new Vec2(0, 0)),
+            new PolyVertex(new Vec2(0, 60)),
+            new PolyVertex(new Vec2(100, 60)),
+            new PolyVertex(new Vec2(100, 0)),
+        ], closed: true);
+
+        var counter = (SPolyline)Corners.Fillet(Rectangle(), new Vec2(50, 0), new Vec2(100, 30), 10).Added[0];
+        var over = (SPolyline)Corners.Fillet(clockwise, new Vec2(100, 30), new Vec2(50, 0), 10).Added[0];
+
+        Assert.True(counter.Vertices[1].Bulge > 0, "counter-clockwise corner should sweep positive");
+
+        var rounded = over.Vertices.Single(v => Math.Abs(v.Bulge) > 1e-12);
+        Assert.True(rounded.Bulge < 0, "the same corner wound the other way sweeps negative");
+    }
+
+    [Fact]
+    public void TheCornerWhereAClosedPolylineJoinsUpCanBeRoundedToo()
+    {
+        // The last segment and the first share vertex zero. Without the wrap
+        // it is the one corner of a rectangle that cannot be rounded, which
+        // is the sort of gap nobody reports and everybody notices.
+        var plan = Corners.Fillet(Rectangle(), new Vec2(0, 30), new Vec2(50, 0), radius: 10);
+        var result = (SPolyline)plan.Added[0];
+
+        Assert.Equal(5, result.Vertices.Length);
+        Assert.Equal(new Vec2(0, 10), result.Vertices[0].Point);
+        Assert.Equal(new Vec2(10, 0), result.Vertices[1].Point);
+    }
+
+    [Fact]
+    public void ChamferingAPolylineCornerCutsItStraight()
+    {
+        var plan = Corners.Chamfer(Rectangle(), new Vec2(50, 0), new Vec2(100, 30), distance: 15);
+        var result = (SPolyline)plan.Added[0];
+
+        Assert.Equal(new Vec2(85, 0), result.Vertices[1].Point);
+        Assert.Equal(new Vec2(100, 15), result.Vertices[2].Point);
+
+        // No bulge: the whole difference between the two operations.
+        Assert.Equal(0, result.Vertices[1].Bulge);
+    }
+
+    [Fact]
+    public void AChamferedPolylineKeepsTheHandleTheFileKnowsItBy()
+    {
+        var rectangle = Rectangle();
+        rectangle.SourceHandle = 0x3B;
+
+        var plan = Corners.Chamfer(rectangle, new Vec2(50, 0), new Vec2(100, 30), distance: 15);
+
+        Assert.Equal(0x3BUL, plan.Added[0].SourceHandle);
+    }
+
+    [Fact]
+    public void TwoSegmentsThatDoNotTouchHaveNoCorner()
+    {
+        // The bottom edge and the top edge of a rectangle: opposite, not
+        // adjacent. Rounding "the corner between them" would have to invent
+        // one.
+        Assert.True(Corners.Fillet(Rectangle(), new Vec2(50, 0), new Vec2(50, 60), radius: 10).IsEmpty);
+
+        // And the same segment twice.
+        Assert.True(Corners.Fillet(Rectangle(), new Vec2(30, 0), new Vec2(70, 0), radius: 10).IsEmpty);
+    }
+
+    [Fact]
+    public void AFilletTooBigForTheEdgesItSitsBetweenIsRefused()
+    {
+        var narrow = new SPolyline(
+        [
+            new PolyVertex(new Vec2(0, 0)),
+            new PolyVertex(new Vec2(12, 0)),
+            new PolyVertex(new Vec2(12, 40)),
+        ], closed: false);
+
+        // Setting back 30 along a 12 edge would move a corner that was not
+        // the one picked.
+        Assert.True(Corners.Fillet(narrow, new Vec2(6, 0), new Vec2(12, 20), radius: 30).IsEmpty);
+    }
+
+    [Fact]
+    public void TheEndOfAnOpenPolylineIsNotACorner()
+    {
+        var run = new SPolyline(
+        [
+            new PolyVertex(new Vec2(0, 0)),
+            new PolyVertex(new Vec2(50, 0)),
+        ], closed: false);
+
+        Assert.True(Corners.Fillet(run, new Vec2(10, 0), new Vec2(40, 0), radius: 5).IsEmpty);
+    }
+
+    [Fact]
+    public void ACornerThatIsAlreadyAnArcIsLeftAlone()
+    {
+        var bent = new SPolyline(
+        [
+            new PolyVertex(new Vec2(0, 0)),
+            new PolyVertex(new Vec2(50, 0), bulge: 0.5),
+            new PolyVertex(new Vec2(50, 50)),
+            new PolyVertex(new Vec2(0, 50)),
+        ], closed: false);
+
+        // Rounding into a curve is a tangent circle to a curve, which is a
+        // different problem and not one to approximate quietly.
+        Assert.True(Corners.Fillet(bent, new Vec2(25, 0), new Vec2(50, 25), radius: 5).IsEmpty);
+    }
 }

@@ -195,4 +195,70 @@ public sealed class DrawingRenderTests
         Assert.True(r > g * 3 && r > b * 3,
             $"a line drawn on a red layer should be red, got rgb({r},{g},{b})");
     }
+
+    /// <summary>
+    /// A rectangle with one corner rounded, drawn and filleted through the
+    /// canvas as a user would.
+    /// </summary>
+    private static SceneDrawing FilletedRectangle(bool chamfer)
+    {
+        var drawing = SceneDrawing.CreateEmpty();
+        var canvas = new FreeDWGEditorThatWorks.Controls.CadCanvas { Drawing = drawing };
+
+        canvas.UseTool(new RectangleTool());
+        canvas.PlaceToolPoint(new Vec2(0, 0));
+        canvas.PlaceToolPoint(new Vec2(100, 60));
+
+        if (chamfer)
+        {
+            canvas.ChamferDistance = 10;
+            canvas.UseTool(new ChamferTool());
+        }
+        else
+        {
+            canvas.FilletRadius = 10;
+            canvas.UseTool(new FilletTool());
+        }
+
+        // The bottom edge and the right edge, which share the corner at
+        // (100,0).
+        canvas.PickEntityForTool(new Vec2(50, 0));
+        canvas.PickEntityForTool(new Vec2(100, 30));
+
+        return drawing;
+    }
+
+    [Fact]
+    public void AFilletedRectangleCornerIsDrawnRoundedTheRightWay()
+    {
+        var probe = StaRenderer.OnSta(() =>
+            new Probe(StaRenderer.Render(FilletedRectangle(chamfer: false), saveAs: "fillet_polyline")));
+
+        // The middle of the arc, at 45 degrees from a centre at (90,10).
+        probe.AssertInk(97.071, 2.929, "the rounded corner");
+
+        // The sharp corner it replaced is gone.
+        probe.AssertBlank(100, 0, "the corner the fillet cut off");
+
+        // And the arc did not go the long way round. That is the one thing
+        // the object model cannot tell you: the same two endpoints on the
+        // same circle, swept the other way, put the arc here instead -- and
+        // the bounds and the vertices are identical either way.
+        probe.AssertBlank(82.929, 17.071, "where a reversed bulge would have drawn it");
+    }
+
+    [Fact]
+    public void AChamferedRectangleCornerIsDrawnStraight()
+    {
+        var probe = StaRenderer.OnSta(() =>
+            new Probe(StaRenderer.Render(FilletedRectangle(chamfer: true), saveAs: "chamfer_polyline")));
+
+        // The middle of the cut, which runs from (90,0) to (100,10).
+        probe.AssertInk(95, 5, "the chamfered corner");
+        probe.AssertBlank(100, 0, "the corner the chamfer cut off");
+
+        // Straight, not bulged: a fillet of the same size would pass through
+        // here and a chamfer does not.
+        probe.AssertBlank(97.071, 2.929, "where a rounded corner would have gone");
+    }
 }

@@ -1,4 +1,4 @@
-# FreeDWG Editor
+﻿# FreeDWG Editor
 
 A 2D DWG viewer, on its way to being an editor. WPF on .NET 10. DWG and DXF
 parsing is done by [ACadSharp](https://github.com/DomCR/ACadSharp) (MIT);
@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 439 tests, ~1s
+dotnet test                 # 582 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -75,10 +75,18 @@ with no WPF and no parser present. Do not add either reference to Core.
   else.** It edits a *copy* and swaps it in with `ReplaceEntities`, so the
   edit is undoable and the entity keeps the handle the file knows it by.
 - **A setting the tools use lives on the canvas, not copied into each tool.**
-  `CornerRadius` is applied in `SetMode` and again whenever it changes, so a
-  tool started before or after the number is typed behaves the same. Two
-  copies of a setting drift, and the one that is forgotten is a value that
-  silently does nothing.
+  `ApplyToolSettings` pushes the fillet radius, the chamfer distance and the
+  dimension sizes into whatever tool is in force, from `SetMode` and from
+  `RefreshToolSettings`, so a tool started before or after the number is
+  typed -- or before or after the document units change -- behaves the same.
+  Two copies of a setting drift, and the one that is forgotten is a value
+  that silently does nothing. The fillet radius and the chamfer distance are
+  *separate* numbers: they were one once, and setting a chamfer quietly
+  changed every fillet after it.
+- **`CursorEntry` is the single answer to "what does the box beside the
+  cursor edit".** A length while a point is being placed, otherwise the size
+  the corner tool in hand works to. One enum, one destination for a typed
+  number, for the reason `Mode` is one enum.
 - **The app is smoke tested by running it.** `StartupTests` launches the real
   executable and waits for a window. A `StaticResource` that resolves to
   nothing, or a handler that fires mid-XAML-parse, compiles clean, passes
@@ -86,6 +94,68 @@ with no WPF and no parser present. Do not add either reference to Core.
   twice.
 - **Entities offer their own snap points** (`CollectSnapPoints`), the third
   thing they do for themselves after emitting and hit testing.
+- **And their own grips** (`CollectGrips`), the fourth. A grip is either
+  `Move` -- drag the whole entity, which the shell does through
+  `TransformEntities` -- or `Shape`, which the entity answers in
+  `MoveGripGeometry`. `MoveGrip` is the non-virtual wrapper that drops the
+  bounds cache, exactly as `Transform` is. A shape drag edits a *clone* and
+  swaps it in with `ReplaceEntities`, so it is undoable without any entity
+  knowing how to restore its own geometry, and the replacement keeps the
+  handle. Where the grips *are* is `GripSet`, in Core and testable; the
+  canvas only paints squares of a fixed pixel size at those points.
+- **`CadCanvas` holds one field for what the left button is doing.** Pick,
+  band and grip are one `LeftGesture` enum, for the reason `Mode` is one
+  enum: a bool per kind of drag lets two be true, and then the mouse-up has
+  two answers for what it just finished.
+- **A dimension is an entity, not a picture of one.** `SDimension` holds
+  three points and works out the extension lines, arrowheads and number from
+  them, so a grip drag re-measures and the number follows. Linear measures
+  the separation along a fixed axis; aligned reads its axis off its own
+  origins; radius and diameter hold a centre and a rim point instead, and
+  the leader aims at wherever the number was dropped so the arrow slides
+  round the rim. The number sits above its own line, unconditionally,
+  because that is the side it is read from. `DimensionMath` is the
+  arithmetic and has no sink anywhere near it. **Imported DIMENSIONs still
+  come in as exploded anonymous blocks** -- reconciling the two is E5's
+  problem, since it is the same problem as writing one back.
+- **A dimension too small for its own marks turns them out.**
+  `DimensionMath.Fit` asks two separate questions, because they are two
+  different collisions: the arrows are on the line and run out of room along
+  it, the number sits above the line and runs out of room across it. A small
+  feature usually wants the arrows out and the number left alone. "Fits"
+  asks for a little clear line between the arrows rather than merely for
+  room, because two that meet exactly tip to tail read as one solid diamond.
+  The arrow *tips* never move -- they are the points the number is of -- and
+  the drawn line runs past them so the turned-out arrows have something to
+  sit on. The measured ends and the stroked ends are different things.
+- **A tool says per click whether it wants an object or a point**
+  (`CanvasTool.WantsEntity`). A radius dimension takes a circle and then a
+  point, so it cannot be answered once from what kind of tool the canvas is
+  holding. Draw tools never want one and entity tools always do; this is the
+  only place it changes mid-tool.
+- **Filleting two segments of one polyline edits it in place.** The corner
+  vertex becomes the two tangent points and the arc rides between them as a
+  bulge, so a rounded rectangle is still one polyline with the handle the
+  file knows it by. This is what explode was wrongly thought to be a
+  prerequisite for. The bulge's sign is the turn's sign -- get it wrong and
+  the arc bulges out of the shape with both its ends still exactly right,
+  which is why there is a render test for it.
+- **Dimensions go on a `Dimensions` layer, made green on demand.** The layer
+  and the first dimension are one `Composite` command, so undo takes both.
+  Annotation is not geometry: it belongs where it can be turned off in one
+  go, whatever layer is current.
+- **Layers are edited through commands too** (`AddLayer`, `DeleteLayer`,
+  `ChangeLayer`). An entity names its layer by *position*, so removing one
+  renumbers every entity in every layout, inside every block, and in every
+  viewport's freeze set -- that is `LayerTable`'s job and it lives in one
+  place. A layer with anything on it cannot be deleted; deciding whether the
+  user's geometry is erased or moved is not a delete key's call.
+- **Recolouring a layer recolours what was following it.** ByLayer is
+  resolved at import, so an entity holds the colour rather than a reference
+  to it, and a layer whose swatch disagreed with its geometry would be
+  lying. `ChangeLayer` restyles exactly the entities still drawn in the
+  layer's *old* style -- which is the set that was following it; anything
+  given a colour of its own differs from it and keeps what it was given.
 - **`CadCanvas.Mode` is the single answer to "what does a left click do".**
   It is an enum and not a set of flags on purpose: the version with a tool
   flag and a separate zoom-window flag let both be set, which lit two toolbar

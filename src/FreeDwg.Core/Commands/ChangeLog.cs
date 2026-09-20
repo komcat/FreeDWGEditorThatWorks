@@ -27,7 +27,18 @@ public sealed class ChangeLog
     /// <summary>Handles of objects that came from the file and have been edited.</summary>
     public HashSet<ulong> Modified { get; } = new();
 
-    public bool IsEmpty => Created.Count == 0 && Deleted.Count == 0 && Modified.Count == 0;
+    /// <summary>Layers added since opening, which have no record in the file yet.</summary>
+    public HashSet<Layer> CreatedLayers { get; } = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Handles of layer records that came from the file and are gone.</summary>
+    public HashSet<ulong> DeletedLayers { get; } = new();
+
+    /// <summary>Handles of layer records that came from the file and have changed.</summary>
+    public HashSet<ulong> ModifiedLayers { get; } = new();
+
+    public bool IsEmpty =>
+        Created.Count == 0 && Deleted.Count == 0 && Modified.Count == 0 &&
+        CreatedLayers.Count == 0 && DeletedLayers.Count == 0 && ModifiedLayers.Count == 0;
 
     /// <summary>
     /// Records an entity as created, or as deleted if it came from the file.
@@ -58,6 +69,37 @@ public sealed class ChangeLog
             Modified.Add(entity.SourceHandle);
     }
 
+    // Layers are objects in the file like any other, so they are tracked the
+    // same way and for the same reason: a drawing whose entities are written
+    // onto a layer table that was never updated is a drawing full of
+    // geometry on the wrong layer.
+
+    public void LayerAdded(Layer layer)
+    {
+        if (layer.SourceHandle != 0 && DeletedLayers.Remove(layer.SourceHandle))
+        {
+            ModifiedLayers.Add(layer.SourceHandle);
+            return;
+        }
+
+        CreatedLayers.Add(layer);
+    }
+
+    public void LayerRemoved(Layer layer)
+    {
+        if (CreatedLayers.Remove(layer)) return;
+        if (layer.SourceHandle != 0) DeletedLayers.Add(layer.SourceHandle);
+    }
+
+    public void LayerEdited(Layer layer)
+    {
+        if (layer.SourceHandle != 0 && !CreatedLayers.Contains(layer))
+            ModifiedLayers.Add(layer.SourceHandle);
+    }
+
     public override string ToString() =>
-        $"{Created.Count} created, {Deleted.Count} deleted, {Modified.Count} modified";
+        $"{Created.Count} created, {Deleted.Count} deleted, {Modified.Count} modified"
+        + (CreatedLayers.Count + DeletedLayers.Count + ModifiedLayers.Count == 0
+            ? ""
+            : $"; layers {CreatedLayers.Count} created, {DeletedLayers.Count} deleted, {ModifiedLayers.Count} modified");
 }

@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -105,6 +106,13 @@ public sealed class SHatch : SceneEntity
         // None. A hatch boundary is derived from the objects around it and
         // already flattened, so its vertices are neither authoritative nor
         // few -- a pattern fill would offer thousands of useless points.
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        // None, for the reason it offers no snap points either: the boundary
+        // is derived and already flattened, so its vertices are neither the
+        // ones the user drew nor few enough to take hold of.
     }
 
     protected override void TransformGeometry(in Mat3 transform)

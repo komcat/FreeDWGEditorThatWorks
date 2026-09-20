@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using FreeDwg.Core.Commands;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
 using FreeDwg.Core.Scene;
@@ -66,6 +67,8 @@ public partial class MainWindow : Window
         [
             SelectButton, LineButton, PolylineButton, RectangleButton,
             CircleButton, ArcButton, EllipseButton,
+            DimensionButton, AlignedDimensionButton,
+            RadiusDimensionButton, DiameterDimensionButton,
             MoveButton, CopyButton, RotateButton, ScaleButton, MirrorButton,
             TrimButton, ExtendButton, FilletButton, ChamferButton, TangentButton,
         ];
@@ -79,6 +82,10 @@ public partial class MainWindow : Window
             CoordinateText.Text =
                 $"X {Units.Format(world.X, units, decimals),10}   "
                 + $"Y {Units.Format(world.Y, units, decimals),10}   {Units.Suffix(units)}";
+
+            // A corner size is not attached to a point being placed, so
+            // nothing else would move its box along with the cursor.
+            UpdateLengthOverlay();
         };
 
         Canvas.SelectionChanged += (_, _) =>
@@ -173,6 +180,10 @@ public partial class MainWindow : Window
             nameof(CircleButton) => new CircleTool(),
             nameof(ArcButton) => new ArcTool(),
             nameof(EllipseButton) => new EllipseTool(),
+            nameof(DimensionButton) => new LinearDimensionTool(),
+            nameof(AlignedDimensionButton) => new AlignedDimensionTool(),
+            nameof(RadiusDimensionButton) => new RadiusDimensionTool(),
+            nameof(DiameterDimensionButton) => new DiameterDimensionTool(),
             nameof(MoveButton) => new MoveTool(),
             nameof(CopyButton) => new CopyTool(),
             nameof(RotateButton) => new RotateTool(),
@@ -236,6 +247,10 @@ public partial class MainWindow : Window
         CircleTool => CircleButton,
         ArcTool => ArcButton,
         EllipseTool => EllipseButton,
+        LinearDimensionTool => DimensionButton,
+        AlignedDimensionTool => AlignedDimensionButton,
+        RadiusDimensionTool => RadiusDimensionButton,
+        DiameterDimensionTool => DiameterDimensionButton,
         MoveTool => MoveButton,
         CopyTool => CopyButton,
         RotateTool => RotateButton,
@@ -484,6 +499,79 @@ public partial class MainWindow : Window
         // to start on whatever the drawing says that is.
         if ((uint)drawing.CurrentLayerIndex < (uint)_layers.Count)
             LayerList.SelectedIndex = drawing.CurrentLayerIndex;
+
+        UpdateLayerButtons();
+    }
+
+    /// <summary>
+    /// Greys the delete button when the selected layer is one that cannot
+    /// go, rather than letting it be pressed and then explaining.
+    /// </summary>
+    private void UpdateLayerButtons()
+    {
+        bool hasDrawing = Canvas.Drawing is not null;
+        int index = LayerList.SelectedIndex;
+
+        LayerNewButton.IsEnabled = hasDrawing;
+        LayerEditButton.IsEnabled = hasDrawing && index >= 0;
+        LayerDeleteButton.IsEnabled = hasDrawing && index >= 0
+                                   && Canvas.WhyLayerCannotBeDeleted(index) is null;
+    }
+
+    private void OnNewLayer(object sender, RoutedEventArgs e)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        var suggested = new LayerProperties(
+            LayerTable.UniqueName(drawing, "Layer"), Rgb.White, Lineweight.Default,
+            null, IsOn: true, IsFrozen: false, IsLocked: false);
+
+        var dialog = new LayerPropertiesWindow("New layer", suggested) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        if (Canvas.AddLayer(dialog.Result) is not { } layer) return;
+
+        // A layer made on purpose is the one about to be drawn on.
+        drawing.CurrentLayerIndex = drawing.Layers.IndexOf(layer);
+        PopulateLayers(drawing);
+    }
+
+    private void OnEditLayer(object sender, RoutedEventArgs e) => EditSelectedLayer();
+
+    /// <summary>Double-clicking a row is the other way to the same dialog.</summary>
+    private void OnLayerDoubleClick(object sender, MouseButtonEventArgs e) => EditSelectedLayer();
+
+    private void EditSelectedLayer()
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        int index = LayerList.SelectedIndex;
+        if ((uint)index >= (uint)drawing.Layers.Count) return;
+
+        var properties = LayerProperties.Of(drawing.Layers[index]);
+        var dialog = new LayerPropertiesWindow($"Layer {properties.Name}", properties) { Owner = this };
+
+        if (dialog.ShowDialog() != true) return;
+
+        Canvas.EditLayer(index, dialog.Result);
+        PopulateLayers(drawing);
+    }
+
+    private void OnDeleteLayer(object sender, RoutedEventArgs e)
+    {
+        int index = LayerList.SelectedIndex;
+        if (index < 0) return;
+
+        // The button is greyed for these, so reaching here means the drawing
+        // changed under it -- say why rather than doing nothing.
+        if (Canvas.WhyLayerCannotBeDeleted(index) is { } why)
+        {
+            MessageBox.Show(this, why, "Delete layer", MessageBoxButton.OK, MessageBoxImage.Information);
+            UpdateLayerButtons();
+            return;
+        }
+
+        Canvas.DeleteLayer(index);
     }
 
     /// <summary>The selected row is the layer new geometry is drawn on.</summary>
@@ -494,6 +582,8 @@ public partial class MainWindow : Window
         if (LayerList.SelectedIndex < 0) return;
 
         drawing.CurrentLayerIndex = LayerList.SelectedIndex;
+
+        UpdateLayerButtons();
         UpdateStatus();
     }
 
@@ -511,6 +601,10 @@ public partial class MainWindow : Window
 
         new DocumentSettingsWindow(drawing, () =>
         {
+            // The units decide how big a new dimension's text is and how its
+            // number reads, so a tool already in hand has to be told.
+            Canvas.RefreshToolSettings();
+
             RebuildProperties();
             UpdateStatus();
             UpdateLengthOverlay();
@@ -518,35 +612,51 @@ public partial class MainWindow : Window
         { Owner = this }.ShowDialog();
     }
 
-    // ---- the length overlay ------------------------------------------------
+    // ---- the overlay beside the cursor -------------------------------------
 
     /// <summary>
-    /// Shows the length of the run being drawn, beside the cursor.
+    /// Shows the number the tool in hand is working to, beside the cursor.
     /// </summary>
     /// <remarks>
+    /// Which number that is comes from the canvas rather than being worked
+    /// out here, so there is one answer to it: a length while a point is
+    /// being placed, a radius while a fillet is waiting for its edges, a
+    /// distance for a chamfer.
+    /// <para>
     /// Left alone while it is being typed into: overwriting what someone is
     /// halfway through entering, twenty times a second as the mouse moves,
     /// would make it impossible to use.
+    /// </para>
     /// </remarks>
     private void UpdateLengthOverlay()
     {
         if (!_ready) return;
 
-        if (Canvas.PendingLength is not { } length || Canvas.Drawing is not { } drawing)
+        if (Canvas.EntryValue is not { } value || Canvas.Drawing is not { } drawing)
         {
             LengthOverlay.Visibility = Visibility.Collapsed;
             return;
         }
 
         LengthOverlay.Visibility = Visibility.Visible;
+        LengthCaption.Text = Canvas.Entry switch
+        {
+            CursorEntry.Radius => "Radius",
+            CursorEntry.Distance => "Distance",
+            _ => "Length",
+        };
+
         LengthUnit.Text = Units.Suffix(drawing.Units);
 
         if (!LengthBox.IsKeyboardFocusWithin)
-            LengthBox.Text = Units.Format(length, drawing.Units, drawing.LinearPrecision);
+            LengthBox.Text = Units.Format(value, drawing.Units, drawing.LinearPrecision);
 
         // Just below and right of the cursor, clear of the crosshair and of
-        // the snap marker sitting on it.
-        var at = Canvas.Camera.WorldToScreen(Canvas.PendingPoint);
+        // the snap marker sitting on it. A corner size is not attached to a
+        // point being placed, so it follows the cursor itself.
+        var at = Canvas.Camera.WorldToScreen(
+            Canvas.Entry == CursorEntry.Length ? Canvas.PendingPoint : Canvas.CursorWorld);
+
         LengthOverlay.Margin = new Thickness(at.X + 18, at.Y + 18, 0, 0);
     }
 
@@ -582,7 +692,12 @@ public partial class MainWindow : Window
     {
         if (Canvas.Drawing is not { } drawing) return;
 
-        if (!Units.TryParseLength(LengthBox.Text, drawing.Units, out double length) || length <= 0)
+        // A corner size of zero is a sharp corner and a perfectly good
+        // answer; a length of zero is not a length.
+        bool wantsPositive = Canvas.Entry == CursorEntry.Length;
+
+        if (!Units.TryParseLength(LengthBox.Text, drawing.Units, out double value)
+            || value < 0 || (wantsPositive && value == 0))
         {
             StatusText.Text = $"'{LengthBox.Text}' is not a length. Try 50, or 2in, or 0.5m.";
             return;
@@ -591,7 +706,7 @@ public partial class MainWindow : Window
         // The canvas takes the keyboard back so that Escape, Enter and the
         // next digit all reach the tool rather than the box.
         Canvas.Focus();
-        Canvas.PlaceTypedLength(length);
+        Canvas.ApplyEntry(value);
         UpdateLengthOverlay();
     }
 
@@ -644,7 +759,7 @@ public partial class MainWindow : Window
         string blocks = drawing.Blocks.Count == 0 ? "" : $"   |   {drawing.Blocks.Count} blocks";
         string layer = drawing.CurrentLayer is { } current ? $"   |   layer {current.Name}" : "";
         string selected = Canvas.Selection.IsEmpty ? "" : $"   |   {Canvas.Selection.Count} selected";
-        string radius = $"   |   R {Canvas.CornerRadius:0.###}";
+        string radius = $"   |   R {Canvas.FilletRadius:0.###}   |   C {Canvas.ChamferDistance:0.###}";
 
         StatusText.Text =
             $"{source}{blocks}   |   {drawing.ActiveLayout.Name}{layer}   |   extents {extents}{selected}{radius}";

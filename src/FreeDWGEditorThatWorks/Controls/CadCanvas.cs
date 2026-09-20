@@ -8,6 +8,7 @@ using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Scene;
+using FreeDwg.Core.Scene.Entities;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Styling;
 using FreeDwg.Core.Tools;
@@ -32,9 +33,36 @@ public sealed class CadCanvas : FrameworkElement
     private Point _panAnchor;
     private bool _zoomExtentsPending;
 
-    private bool _isBanding;
+    /// <summary>
+    /// What the left button is in the middle of, if anything.
+    /// </summary>
+    /// <remarks>
+    /// One field for the same reason <see cref="Mode"/> is one enum: a bool
+    /// per kind of drag lets two of them be true, and then a mouse-up has
+    /// two answers for what it just finished. That shape has already cost
+    /// this codebase a toolbar that lit two buttons at once.
+    /// </remarks>
+    private enum LeftGesture
+    {
+        None,
+
+        /// <summary>Pressed, but not yet dragged far enough to be a band.</summary>
+        Pick,
+
+        /// <summary>Dragging a selection window, or a zoom window.</summary>
+        Band,
+
+        /// <summary>Dragging a grip on something already selected.</summary>
+        Grip,
+    }
+
+    private LeftGesture _gesture;
     private Point _pickAnchor;
     private Point _bandCorner;
+
+    private readonly GripSet _grips = new();
+    private EntityGrip? _heldGrip;
+    private EntityGrip? _hoverGrip;
 
     private CanvasTool? _tool;
     private Vec2 _cursor;
@@ -52,6 +80,12 @@ public sealed class CadCanvas : FrameworkElement
 
     /// <summary>How near the cursor a snap point has to be, in device pixels.</summary>
     private const double SnapRadiusPixels = 12.0;
+
+    /// <summary>How near a grip the cursor has to be to take hold of it, in device pixels.</summary>
+    private const double GripRadiusPixels = 7.0;
+
+    /// <summary>The side of a grip square, in device pixels.</summary>
+    private const double GripSizePixels = 7.0;
 
     private static readonly Pen SnapPen = MakeSnapPen();
     private static readonly Pen GuidePen = MakeGuidePen();
@@ -85,6 +119,29 @@ public sealed class CadCanvas : FrameworkElement
         return pen;
     }
 
+    // The selection colour, so a handle plainly belongs to the thing that is
+    // lit up; the held one goes warm, which is the CAD convention for a grip
+    // that is about to move.
+    private static readonly Brush GripFill = MakeGripFill(Color.FromRgb(90, 175, 255));
+    private static readonly Brush HotGripFill = MakeGripFill(Color.FromRgb(255, 120, 80));
+    private static readonly Pen GripEdge = MakeGripEdge();
+
+    private static Brush MakeGripFill(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Pen MakeGripEdge()
+    {
+        // A dark outline so a square still reads against geometry of its own
+        // colour, which a selected blue line is by definition.
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(200, 12, 16, 24)), 1.0);
+        pen.Freeze();
+        return pen;
+    }
+
     private static readonly Pen WindowPen = MakeBandPen(Color.FromRgb(90, 150, 255), dashed: false);
     private static readonly Pen CrossingPen = MakeBandPen(Color.FromRgb(110, 220, 120), dashed: true);
     private static readonly Brush WindowFill = MakeBandFill(Color.FromRgb(90, 150, 255));
@@ -112,6 +169,7 @@ public sealed class CadCanvas : FrameworkElement
 
         Selection.Changed += (_, _) =>
         {
+            RefreshGrips();
             InvalidateVisual();
             SelectionChanged?.Invoke(this, EventArgs.Empty);
         };
@@ -152,7 +210,7 @@ public sealed class CadCanvas : FrameworkElement
     public SnapEngine Snapping { get; } = new();
 
     /// <summary>
-    /// Fillet radius and chamfer distance. Zero means a sharp corner.
+    /// Radius of a filleted corner. Zero means a sharp one.
     /// </summary>
     /// <remarks>
     /// Held here rather than copied into each tool as it is built, because
@@ -160,23 +218,74 @@ public sealed class CadCanvas : FrameworkElement
     /// the other on change, and whichever is forgotten is a size that
     /// silently does nothing. The canvas owns it and applies it, so a tool
     /// started before or after the number is typed behaves the same.
+    /// <para>
+    /// Separate from <see cref="ChamferDistance"/>. They were one number
+    /// once, which meant setting a 2 mm chamfer quietly changed every fillet
+    /// after it to 2 mm as well -- they are different measurements of
+    /// different things and only look alike.
+    /// </para>
     /// </remarks>
-    public double CornerRadius
+    public double FilletRadius
     {
-        get => _cornerRadius;
-        set
-        {
-            _cornerRadius = value;
-            ApplyCornerRadius();
-            ModeChanged?.Invoke(this, EventArgs.Empty);
-        }
+        get => _filletRadius;
+        set => SetCornerSize(ref _filletRadius, value);
     }
 
-    private double _cornerRadius;
-
-    private void ApplyCornerRadius()
+    /// <summary>How far back along each edge a chamfer cuts.</summary>
+    public double ChamferDistance
     {
-        if (_tool is FilletTool fillet) fillet.Radius = _cornerRadius;
+        get => _chamferDistance;
+        set => SetCornerSize(ref _chamferDistance, value);
+    }
+
+    private double _filletRadius;
+    private double _chamferDistance;
+
+    private void SetCornerSize(ref double field, double value)
+    {
+        if (field == value) return;
+
+        field = value;
+        ApplyToolSettings();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// How big the marks on a new dimension are, and how its number reads.
+    /// Taken from the drawing, since both answers are the drawing's: ISO
+    /// sizes are millimetres of paper, and a drawing in metres wants the
+    /// same marks at a thousandth of the number.
+    /// </summary>
+    public DimensionStyle DimensionStyle =>
+        _drawing is null ? DimensionStyle.Iso : DimensionStyle.For(_drawing);
+
+    /// <summary>
+    /// Pushes every setting the canvas owns into the tool in force.
+    /// </summary>
+    /// <remarks>
+    /// One method rather than one per setting, and called from one place
+    /// besides the setters, because the failure this guards against is a
+    /// setting that was applied down one path and forgotten down the other
+    /// -- a size that silently does nothing depending on whether the tool
+    /// was picked before or after the number was typed.
+    /// </remarks>
+    private void ApplyToolSettings()
+    {
+        // Chamfer derives from fillet, so it has to be asked about first.
+        if (_tool is ChamferTool chamfer) chamfer.Radius = _chamferDistance;
+        else if (_tool is FilletTool fillet) fillet.Radius = _filletRadius;
+
+        if (_tool is DimensionTool dimension) dimension.Sizes = DimensionStyle;
+    }
+
+    /// <summary>
+    /// Re-reads the settings that come from the document, for the shell to
+    /// call when the units or the precision change under an active tool.
+    /// </summary>
+    public void RefreshToolSettings()
+    {
+        ApplyToolSettings();
+        InvalidateVisual();
     }
 
     /// <summary>Back to the pointer.</summary>
@@ -195,6 +304,8 @@ public sealed class CadCanvas : FrameworkElement
     private void SetMode(CanvasMode mode, CanvasTool? tool)
     {
         _tool?.Cancel();
+        AbandonGesture();
+
         _tool = tool;
         Mode = mode;
 
@@ -209,9 +320,14 @@ public sealed class CadCanvas : FrameworkElement
         // the last thing are rarely what the next one wants to line up with.
         Snapping.ClearTracking();
 
-        // Whatever the tool was built with, the canvas's figure wins: there
-        // is one setting and it is here.
-        ApplyCornerRadius();
+        // Whatever the tool was built with, the canvas's figures win: there
+        // is one copy of each of them and it is here.
+        ApplyToolSettings();
+
+        // Grips belong to the pointer. A modify tool acts on the selection as
+        // a whole, so handles on its parts would offer an edit that the next
+        // click is not going to make.
+        RefreshGrips();
 
         Cursor = mode == CanvasMode.Select ? Cursors.Arrow : Cursors.Cross;
 
@@ -219,8 +335,14 @@ public sealed class CadCanvas : FrameworkElement
         ModeChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>What the tool wants next, for the status bar.</summary>
-    public string? ToolPrompt => _tool?.Prompt;
+    /// <summary>
+    /// What is being asked for next, for the status bar. A held grip has
+    /// something to say as much as a tool mid-pick does, and the status bar
+    /// should not have to know which of the two is talking.
+    /// </summary>
+    public string? ToolPrompt => _heldGrip is not null
+        ? "Grip: pick where it goes, or type a distance"
+        : _tool?.Prompt;
 
     /// <summary>Pick tolerance in world units at the current zoom.</summary>
     public double PickTolerance => Camera.Scale > 0 ? PickRadiusPixels / Camera.Scale : 0;
@@ -228,16 +350,88 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>Snap radius in world units at the current zoom.</summary>
     public double SnapTolerance => Camera.Scale > 0 ? SnapRadiusPixels / Camera.Scale : 0;
 
+    /// <summary>Grip radius in world units at the current zoom.</summary>
+    public double GripTolerance => Camera.Scale > 0 ? GripRadiusPixels / Camera.Scale : 0;
+
     /// <summary>Where the snap marker is showing, if one is.</summary>
     public SnapResult ActiveSnap => _snap;
 
-    /// <summary>The point the tool is drawing from, when it is mid-pick.</summary>
-    public Vec2? PendingFrom => _tool is { InProgress: true } tool ? tool.Points[^1] : null;
+    /// <summary>
+    /// What the box beside the cursor is editing, if anything.
+    /// </summary>
+    /// <remarks>
+    /// One question with one answer, for the reason <see cref="Mode"/> is
+    /// one enum. A length while a point is being placed, and otherwise the
+    /// size the corner tools work to -- which used to be reachable only from
+    /// a row in the properties panel, on the far side of the window from
+    /// where the user is looking.
+    /// </remarks>
+    public CursorEntry Entry
+    {
+        get
+        {
+            if (PendingFrom is not null) return CursorEntry.Length;
+
+            return _tool switch
+            {
+                ChamferTool => CursorEntry.Distance,
+                FilletTool => CursorEntry.Radius,
+                _ => CursorEntry.None,
+            };
+        }
+    }
+
+    /// <summary>The number in that box.</summary>
+    public double? EntryValue => Entry switch
+    {
+        CursorEntry.Length => PendingLength,
+        CursorEntry.Radius => _filletRadius,
+        CursorEntry.Distance => _chamferDistance,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Takes a number typed into that box, wherever it belongs. False when
+    /// there was nowhere for it to go.
+    /// </summary>
+    public bool ApplyEntry(double value)
+    {
+        switch (Entry)
+        {
+            case CursorEntry.Length:
+                return PlaceTypedLength(value);
+
+            case CursorEntry.Radius when value >= 0:
+                FilletRadius = value;
+                return true;
+
+            case CursorEntry.Distance when value >= 0:
+                ChamferDistance = value;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// The point being measured from: where the tool last picked, or where
+    /// the grip being dragged started. Null when nothing is being placed.
+    /// </summary>
+    public Vec2? PendingFrom => _heldGrip is { } held
+        ? held.Point
+        : _tool is { InProgress: true } tool ? tool.Points[^1] : null;
 
     /// <summary>
     /// Where the next point would land as things stand, in world units.
     /// </summary>
     public Vec2 PendingPoint => _snapped;
+
+    /// <summary>
+    /// Where the cursor is, unsnapped. What the overlay follows when the
+    /// number it is showing belongs to the tool rather than to a point.
+    /// </summary>
+    public Vec2 CursorWorld => _cursor;
 
     /// <summary>How long the run being drawn currently is.</summary>
     public double? PendingLength =>
@@ -255,7 +449,20 @@ public sealed class CadCanvas : FrameworkElement
     /// </remarks>
     public bool PlaceTypedLength(double length)
     {
-        if (_tool is not { InProgress: true } tool || length <= 0) return false;
+        if (length <= 0) return false;
+
+        // A grip drag has exactly the same shape as a picked point -- the
+        // cursor aims it and the keyboard says how far -- so it takes the
+        // typed distance too, and a vertex can be pulled out by 50.
+        if (_heldGrip is { } held)
+        {
+            var aim = (_snapped - held.Point).Normalized();
+            if (aim.LengthSquared <= 0) return false;
+
+            return EndGripDrag(held.Point + aim * length);
+        }
+
+        if (_tool is not { InProgress: true } tool) return false;
 
         var from = tool.Points[^1];
         var direction = (_snapped - from).Normalized();
@@ -281,11 +488,14 @@ public sealed class CadCanvas : FrameworkElement
     {
         if (_drawing is null) return world;
 
-        Vec2? from = _tool is { InProgress: true } tool ? tool.Points[^1] : null;
+        // A held grip is the point being moved, so ortho and polar are
+        // measured from where it started -- pulling a vertex straight up is
+        // the same gesture as drawing straight up.
+        Vec2? from = PendingFrom;
 
         // The point before that, so polar angles can be measured from the
         // segment just drawn rather than from the horizon.
-        Vec2? before = _tool is { InProgress: true, Points.Count: >= 2 } run
+        Vec2? before = _heldGrip is null && _tool is { InProgress: true, Points.Count: >= 2 } run
             ? run.Points[^2]
             : null;
 
@@ -324,6 +534,13 @@ public sealed class CadCanvas : FrameworkElement
     }
 
     private bool ZoomWindowArmed => Mode == CanvasMode.ZoomWindow;
+
+    /// <summary>
+    /// Whether a point is being placed: a tool is picking, or a grip is
+    /// being dragged. Both want snapping resolved on every move and the snap
+    /// marker drawn, and one answer keeps them from drifting apart.
+    /// </summary>
+    private bool IsPlacingPoint => Mode == CanvasMode.Draw || _heldGrip is not null;
 
     /// <summary>Fires with the cursor position in world units.</summary>
     public event EventHandler<Vec2>? CursorMoved;
@@ -418,8 +635,14 @@ public sealed class CadCanvas : FrameworkElement
             Selection.IsEmpty ? null : Selection.Entities, Settings);
 
         if (_tool is not null) DrawToolPreview(sink);
-        if (_isBanding) DrawSelectionBand(dc);
-        if (_snap.Found && Mode == CanvasMode.Draw)
+        DrawGripPreview(sink);
+
+        // Over the preview: a grip is a target for the mouse, and one hidden
+        // under the line work it belongs to is not one you can aim at.
+        if (!_grips.IsEmpty) DrawGrips(dc);
+
+        if (_gesture == LeftGesture.Band) DrawSelectionBand(dc);
+        if (_snap.Found && IsPlacingPoint)
         {
             DrawTrackingGuides(dc);
             DrawSnapMarker(dc);
@@ -561,7 +784,11 @@ public sealed class CadCanvas : FrameworkElement
     private void DrawToolPreview(IDrawingSink sink)
     {
         if (_tool is null || _drawing is null) return;
-        if (!_tool.InProgress && _tool is not ModifyTool) return;
+
+        // A circle dimension has nothing picked and plenty to show: it is
+        // holding a circle rather than a list of points.
+        bool started = _tool.InProgress || _tool is CircleDimensionTool { HasSubject: true };
+        if (!started && _tool is not ModifyTool) return;
 
         var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
         var style = new DisplayStyle(PreviewColor, Lineweight.Default);
@@ -597,6 +824,62 @@ public sealed class CadCanvas : FrameworkElement
         foreach (var entity in Selection.Ordered) entity.Emit(context, style);
 
         context.Sink.PopTransform();
+    }
+
+    /// <summary>
+    /// The handles on the selection, as squares of a fixed pixel size.
+    /// </summary>
+    /// <remarks>
+    /// Device space, like the snap marker and for the same reason: a grip is
+    /// a target for the mouse, so it has to stay the same size to aim at
+    /// however far the view is zoomed out. Where the handles *are* is world
+    /// geometry, which is <see cref="GripSet"/>'s job and is the half worth
+    /// testing.
+    /// </remarks>
+    private void DrawGrips(DrawingContext dc)
+    {
+        const double half = GripSizePixels / 2;
+
+        foreach (var grip in _grips.Grips)
+        {
+            bool held = _heldGrip == grip;
+
+            // The held one rides with the cursor rather than staying behind
+            // at the position the geometry has already left.
+            Vec2 at = Camera.WorldToScreen(held ? _snapped : grip.Point);
+            bool hot = held || (_heldGrip is null && _hoverGrip == grip);
+
+            dc.DrawRectangle(hot ? HotGripFill : GripFill, GripEdge,
+                new Rect(at.X - half, at.Y - half, GripSizePixels, GripSizePixels));
+        }
+    }
+
+    /// <summary>
+    /// The entity as the grip drag would leave it, through the same sink as
+    /// the scene -- the rule every preview here follows.
+    /// </summary>
+    private void DrawGripPreview(IDrawingSink sink)
+    {
+        if (_heldGrip is not { } held || _drawing is null) return;
+
+        var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
+        var style = new DisplayStyle(PreviewColor, Lineweight.Default);
+
+        if (held.Grip.Role == GripRole.Move)
+        {
+            // Pushed onto the sink rather than applied, so an abandoned drag
+            // cannot leave the entity somewhere else.
+            sink.PushTransform(Mat3.Translation(_snapped - held.Point));
+            held.Entity.Emit(context, style);
+            sink.PopTransform();
+            return;
+        }
+
+        // A shape change has no transform to push, so it is previewed from a
+        // copy -- the same copy the commit makes, which is what stops the
+        // preview from being free to disagree with the result.
+        var moved = held.Entity.Clone();
+        if (moved.MoveGrip(held.Grip, _snapped)) moved.Emit(context, style);
     }
 
     /// <summary>
@@ -659,9 +942,10 @@ public sealed class CadCanvas : FrameworkElement
             Point picked = e.GetPosition(this);
             var world = Camera.ScreenToWorld(new Vec2(picked.X, picked.Y));
 
-            // An entity tool wants what is under the cursor, not a snapped
-            // coordinate: it is pointing at objects, not placing points.
-            if (_tool is EntityTool) PickEntityForTool(world);
+            // Some clicks want what is under the cursor rather than a
+            // snapped coordinate: they are pointing at an object, not
+            // placing a point. The tool says which, per click.
+            if (_tool is { WantsEntity: true }) PickEntityForTool(world);
             else PlaceToolPoint(ResolvePoint(world));
 
             e.Handled = true;
@@ -670,8 +954,23 @@ public sealed class CadCanvas : FrameworkElement
 
         if (e.ChangedButton == MouseButton.Left)
         {
-            _pickAnchor = e.GetPosition(this);
+            Point pressed = e.GetPosition(this);
+
+            // A grip wins over a band. The handle is on something already
+            // selected, and a band started on top of it would clear the very
+            // selection the handle belongs to.
+            if (Mode == CanvasMode.Select &&
+                BeginGripDrag(Camera.ScreenToWorld(new Vec2(pressed.X, pressed.Y))))
+            {
+                _gesture = LeftGesture.Grip;
+                CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+
+            _pickAnchor = pressed;
             _bandCorner = _pickAnchor;
+            _gesture = LeftGesture.Pick;
             CaptureMouse();
             e.Handled = true;
         }
@@ -698,7 +997,7 @@ public sealed class CadCanvas : FrameworkElement
 
         // Resolving on every move is what puts the marker under the cursor
         // before the click rather than after it.
-        if (Mode == CanvasMode.Draw) ResolvePoint(_cursor);
+        if (IsPlacingPoint) ResolvePoint(_cursor);
         else _snapped = _cursor;
 
         if (_isPanning)
@@ -711,6 +1010,13 @@ public sealed class CadCanvas : FrameworkElement
             _panAnchor = p;
             Redraw();
         }
+        else if (_heldGrip is not null)
+        {
+            // The preview, the grip square and the length readout all follow
+            // the cursor, so every move is a repaint here too.
+            InvalidateVisual();
+            PendingPointChanged?.Invoke(this, EventArgs.Empty);
+        }
         else if (Mode == CanvasMode.Draw)
         {
             // The preview and the snap marker both follow the cursor, so
@@ -718,22 +1024,26 @@ public sealed class CadCanvas : FrameworkElement
             InvalidateVisual();
             PendingPointChanged?.Invoke(this, EventArgs.Empty);
         }
-        else if (e.LeftButton == MouseButtonState.Pressed && IsMouseCaptured)
+        else if (_gesture is LeftGesture.Pick or LeftGesture.Band)
         {
             // A band only starts once the drag is unmistakably a drag; below
             // that a shaky hand would turn every click into an empty window.
-            if (!_isBanding &&
+            if (_gesture == LeftGesture.Pick &&
                 (Math.Abs(p.X - _pickAnchor.X) > DragThresholdPixels ||
                  Math.Abs(p.Y - _pickAnchor.Y) > DragThresholdPixels))
             {
-                _isBanding = true;
+                _gesture = LeftGesture.Band;
             }
 
-            if (_isBanding)
+            if (_gesture == LeftGesture.Band)
             {
                 _bandCorner = p;
                 InvalidateVisual();
             }
+        }
+        else if (Mode == CanvasMode.Select)
+        {
+            HoverGrip(_cursor);
         }
 
         CursorMoved?.Invoke(this, Camera.ScreenToWorld(new Vec2(p.X, p.Y)));
@@ -755,19 +1065,32 @@ public sealed class CadCanvas : FrameworkElement
 
         ReleaseMouseCapture();
         Point p = e.GetPosition(this);
+        var world = Camera.ScreenToWorld(new Vec2(p.X, p.Y));
 
         bool extend = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Control)) != 0;
 
-        if (_isBanding)
+        var gesture = _gesture;
+        _gesture = LeftGesture.None;
+
+        switch (gesture)
         {
-            _bandCorner = p;
-            SelectInBand(extend);
-            _isBanding = false;
-            InvalidateVisual();
-        }
-        else
-        {
-            PickAt(Camera.ScreenToWorld(new Vec2(p.X, p.Y)), extend);
+            case LeftGesture.Grip:
+                // Resolved here rather than inside, so that a grip dropped on
+                // an endpoint lands on it exactly -- and so that a typed
+                // length, which has already worked out its own point, is not
+                // snapped away from the distance that was asked for.
+                EndGripDrag(ResolvePoint(world));
+                break;
+
+            case LeftGesture.Band:
+                _bandCorner = p;
+                SelectInBand(extend);
+                InvalidateVisual();
+                break;
+
+            case LeftGesture.Pick:
+                PickAt(world, extend);
+                break;
         }
     }
 
@@ -784,7 +1107,7 @@ public sealed class CadCanvas : FrameworkElement
     {
         base.OnTextInput(e);
 
-        if (_tool is not { InProgress: true } || e.Text.Length == 0) return;
+        if (e.Text.Length == 0 || Entry == CursorEntry.None) return;
         if (!char.IsAsciiDigit(e.Text[0]) && e.Text[0] != '.') return;
 
         LengthTypingStarted?.Invoke(this, e.Text);
@@ -822,9 +1145,15 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     private void CancelWhateverIsHappening()
     {
-        if (_isBanding)
+        if (_heldGrip is not null)
         {
-            _isBanding = false;
+            CancelGripDrag();
+            return;
+        }
+
+        if (_gesture == LeftGesture.Band)
+        {
+            _gesture = LeftGesture.None;
             ReleaseMouseCapture();
             InvalidateVisual();
         }
@@ -846,6 +1175,171 @@ public sealed class CadCanvas : FrameworkElement
         }
 
         Selection.Clear();
+    }
+
+    // ---- grips ----------------------------------------------------------
+
+    /// <summary>The handles on show, in world coordinates.</summary>
+    public IReadOnlyList<EntityGrip> Grips => _grips.Grips;
+
+    /// <summary>Whether a grip is being dragged.</summary>
+    public bool IsDraggingGrip => _heldGrip is not null;
+
+    /// <summary>
+    /// Recomputes the handles on show.
+    /// </summary>
+    /// <remarks>
+    /// Grips are world geometry read off the selected entities, so anything
+    /// that changes either of those -- the selection, an edit, an undo -- has
+    /// to come back through here, or the squares are left sitting where the
+    /// geometry used to be. Three callers: the selection, an edit, and a
+    /// change of mode.
+    /// </remarks>
+    private void RefreshGrips() =>
+        _grips.Rebuild(Mode == CanvasMode.Select ? Selection.Ordered : []);
+
+    /// <summary>Lights the handle under the cursor, if there is one.</summary>
+    private void HoverGrip(Vec2 world)
+    {
+        var hover = _grips.Nearest(world, GripTolerance);
+        if (hover == _hoverGrip) return;
+
+        _hoverGrip = hover;
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Takes hold of the grip nearest a world point. False if none is in
+    /// reach, which is what leaves a click free to select instead.
+    /// </summary>
+    /// <remarks>
+    /// World coordinates and public, for the reason <see cref="PickAt"/> is:
+    /// the mouse is not the only thing that will ever drive this, and a test
+    /// has no mouse.
+    /// </remarks>
+    public bool BeginGripDrag(Vec2 world)
+    {
+        if (_drawing is null || Mode != CanvasMode.Select) return false;
+        if (_grips.Nearest(world, GripTolerance) is not { } grip) return false;
+
+        _heldGrip = grip;
+        _hoverGrip = grip;
+
+        // The handle's own position, not where it was clicked: a grab that
+        // lands a pixel off the grip must not shift the geometry by a pixel.
+        _snapped = grip.Point;
+        _snap = default;
+
+        // Points acquired while drawing something else are not what this
+        // drag wants to line up with, exactly as for a new tool.
+        Snapping.ClearTracking();
+
+        InvalidateVisual();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    /// <summary>Moves the held grip, snapping as a picked point would.</summary>
+    public void DragGripTo(Vec2 world)
+    {
+        if (_heldGrip is null) return;
+
+        ResolvePoint(world);
+        InvalidateVisual();
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Drops the held grip at <paramref name="to"/> and commits the edit.
+    /// Returns whether the drawing changed.
+    /// </summary>
+    /// <remarks>
+    /// Takes the point already resolved, the way <see cref="PlaceToolPoint"/>
+    /// does, so that a caller with a point of its own -- a typed length --
+    /// is not snapped off the answer it worked out.
+    /// </remarks>
+    public bool EndGripDrag(Vec2 to)
+    {
+        if (_heldGrip is not { } held) return false;
+
+        _heldGrip = null;
+        _snap = default;
+
+        bool changed = CommitGrip(held, to);
+
+        InvalidateVisual();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
+        return changed;
+    }
+
+    /// <summary>Lets go of the held grip, changing nothing.</summary>
+    public void CancelGripDrag()
+    {
+        if (_heldGrip is null) return;
+
+        AbandonGesture();
+        _snap = default;
+
+        InvalidateVisual();
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void AbandonGesture()
+    {
+        _heldGrip = null;
+        _hoverGrip = null;
+        _gesture = LeftGesture.None;
+    }
+
+    /// <summary>
+    /// Turns a finished grip drag into a command.
+    /// </summary>
+    /// <remarks>
+    /// Two routes, because a grip means one of two things. A move is a
+    /// translation of the whole entity, which the transform command already
+    /// applies and undoes by its exact inverse. A shape change edits a
+    /// *copy* and swaps it in, the way the properties panel does: that is
+    /// what makes it undoable without every entity needing a way to save and
+    /// restore its own geometry, and the replacement keeps the handle the
+    /// file knows the object by.
+    /// </remarks>
+    private bool CommitGrip(EntityGrip held, Vec2 to)
+    {
+        if (_drawing is null || Commands is null) return false;
+
+        var (entity, grip) = held;
+
+        // A grab and release with no drag is not an edit, and must not put a
+        // do-nothing step on the undo stack.
+        if (Vec2.Distance(grip.Point, to) < 1e-12) return false;
+
+        if (grip.Role == GripRole.Move)
+        {
+            Commands.Do(new TransformEntities(_drawing.ActiveLayout, [entity],
+                Mat3.Translation(to - grip.Point), "Move"));
+
+            RaiseDrawingEdited();
+            return true;
+        }
+
+        var moved = entity.Clone();
+        if (!moved.MoveGrip(grip, to)) return false;
+
+        Commands.Do(new ReplaceEntities(_drawing.ActiveLayout,
+            EditPlan.Replace(entity, moved), "Stretch"));
+
+        // Whatever else was selected stays selected, with the replacement in
+        // place of the original: a grip drag edits one object out of however
+        // many are picked, and clearing the rest would be a surprise.
+        Selection.Set(Selection.Ordered
+            .Select(picked => ReferenceEquals(picked, entity) ? moved : picked)
+            .ToList());
+
+        RaiseDrawingEdited();
+        return true;
     }
 
     // ---- editing --------------------------------------------------------
@@ -881,19 +1375,33 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     public void PickEntityForTool(Vec2 world)
     {
-        if (_tool is not EntityTool tool || _drawing is null || Commands is null) return;
+        if (_drawing is null || Commands is null) return;
 
         var hit = Picker.At(_drawing, world, PickTolerance);
-        var plan = tool.Click(new EntityPick(hit, world, BoundariesAround(world, hit)));
 
-        Apply(tool, plan);
+        switch (_tool)
+        {
+            case EntityTool tool:
+                Apply(tool, tool.Click(new EntityPick(hit, world, BoundariesAround(world, hit))));
 
-        // Whatever the tool is still holding shows as selected, so a fillet
-        // waiting for its second line says which first line it has.
-        Selection.Set(tool.PickedEntities);
+                // Whatever the tool is still holding shows as selected, so a
+                // fillet waiting for its second edge says which it has.
+                Selection.Set(tool.PickedEntities);
+                break;
+
+            case CircleDimensionTool dimension:
+                // The circle it took, highlighted while the number is placed,
+                // so it is clear which one is being measured.
+                Selection.Set(dimension.Take(hit) && hit is not null ? [hit] : []);
+                break;
+
+            default:
+                return;
+        }
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -946,7 +1454,7 @@ public sealed class CadCanvas : FrameworkElement
             Commands.Do(new TransformEntities(_drawing.ActiveLayout, [target],
                 Mat3.Translation(offset), "Mate"));
 
-            DrawingEdited?.Invoke(this, EventArgs.Empty);
+            RaiseDrawingEdited();
             return;
         }
 
@@ -955,7 +1463,7 @@ public sealed class CadCanvas : FrameworkElement
         string name = char.ToUpperInvariant(tool.Name[0]) + tool.Name[1..];
         Commands.Do(new ReplaceEntities(_drawing.ActiveLayout, plan, name));
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
     }
 
     /// <summary>Ends an open-ended tool, as Enter or a right click does.</summary>
@@ -978,9 +1486,136 @@ public sealed class CadCanvas : FrameworkElement
         if (entity is null || _drawing is null || Commands is null) return;
 
         _drawing.Place(entity);
-        Commands.Do(new AddEntities(_drawing.ActiveLayout, entity));
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        // A dimension is annotation rather than geometry, and belongs on its
+        // own layer whatever layer happens to be current. That is what every
+        // drawing office standard says, and it is what makes it possible to
+        // turn every dimension in a drawing off at once.
+        Commands.Do(entity is SDimension
+            ? OntoDimensionLayer(entity)
+            : new AddEntities(_drawing.ActiveLayout, entity));
+
+        RaiseDrawingEdited();
+    }
+
+    /// <summary>The layer dimensions are drawn on, made when the first one is.</summary>
+    public const string DimensionLayerName = "Dimensions";
+
+    /// <summary>
+    /// Green, which is what a drawing full of white geometry leaves free and
+    /// what AutoCAD's own templates use for dimensions.
+    /// </summary>
+    private static readonly Rgb DimensionLayerColor = new(0, 200, 0);
+
+    /// <summary>
+    /// Adds a dimension on the dimension layer, creating that layer if the
+    /// drawing has not got one, as a single step on the undo stack.
+    /// </summary>
+    private IEditCommand OntoDimensionLayer(SceneEntity entity)
+    {
+        var drawing = _drawing!;
+        int existing = LayerTable.IndexOf(drawing, DimensionLayerName);
+
+        if (existing >= 0)
+        {
+            entity.LayerIndex = existing;
+            entity.Style = drawing.Layers[existing].Style;
+
+            return new AddEntities(drawing.ActiveLayout, entity);
+        }
+
+        var layer = new Layer(DimensionLayerName) { Color = DimensionLayerColor };
+
+        // A new layer goes on the end of the table, so that is the index the
+        // dimension needs -- and it needs it before the add runs, since a
+        // command applies rather than works things out.
+        entity.LayerIndex = drawing.Layers.Count;
+        entity.Style = layer.Style;
+
+        return new Composite("Draw dimension",
+            new AddLayer(layer),
+            new AddEntities(drawing.ActiveLayout, entity));
+    }
+
+    // ---- layers ---------------------------------------------------------
+
+    /// <summary>
+    /// Adds a layer and returns it, or null if there is no drawing.
+    /// </summary>
+    /// <remarks>
+    /// The name is made unique whatever was asked for. Two layers of one
+    /// name is a drawing nobody -- and no file format -- can reason about,
+    /// and refusing the whole thing over it would throw away the rest of
+    /// what the user filled in.
+    /// </remarks>
+    public Layer? AddLayer(LayerProperties properties)
+    {
+        if (_drawing is null || Commands is null) return null;
+
+        var layer = new Layer(UniqueLayerName(properties.Name, except: -1));
+        (properties with { Name = layer.Name }).ApplyTo(layer);
+
+        Commands.Do(new AddLayer(layer));
+
+        RaiseDrawingEdited();
+        return layer;
+    }
+
+    /// <summary>
+    /// A layer name not already taken by a layer other than
+    /// <paramref name="except"/>, falling back to a default for a blank one.
+    /// </summary>
+    private string UniqueLayerName(string wanted, int except)
+    {
+        var drawing = _drawing!;
+
+        string name = wanted.Trim();
+        if (name.Length == 0) name = "Layer";
+
+        int clash = LayerTable.IndexOf(drawing, name);
+        return clash < 0 || clash == except ? name : LayerTable.UniqueName(drawing, name);
+    }
+
+    /// <summary>
+    /// Why the layer at <paramref name="index"/> cannot be deleted, in words
+    /// that can be shown to the user, or null if it can be.
+    /// </summary>
+    public string? WhyLayerCannotBeDeleted(int index)
+    {
+        if (_drawing is null || (uint)index >= (uint)_drawing.Layers.Count) return "No such layer.";
+        if (index == 0) return "Layer 0 is the one every DWG has, and cannot be deleted.";
+
+        return LayerTable.IsInUse(_drawing, index)
+            ? $"Layer {_drawing.Layers[index].Name} still has geometry on it. Move or erase it first."
+            : null;
+    }
+
+    /// <summary>Deletes a layer. False when it is one of the ones that cannot go.</summary>
+    public bool DeleteLayer(int index)
+    {
+        if (_drawing is null || Commands is null) return false;
+        if (WhyLayerCannotBeDeleted(index) is not null) return false;
+
+        Commands.Do(new DeleteLayer(_drawing, index));
+
+        RaiseDrawingEdited();
+        return true;
+    }
+
+    /// <summary>
+    /// Renames or restyles a layer, taking the entities that were following
+    /// it along with it.
+    /// </summary>
+    public bool EditLayer(int index, LayerProperties properties)
+    {
+        if (_drawing is null || Commands is null) return false;
+        if ((uint)index >= (uint)_drawing.Layers.Count) return false;
+
+        Commands.Do(new ChangeLayer(_drawing, index,
+            properties with { Name = UniqueLayerName(properties.Name, except: index) }));
+
+        RaiseDrawingEdited();
+        return true;
     }
 
     /// <summary>
@@ -1009,7 +1644,7 @@ public sealed class CadCanvas : FrameworkElement
             Commands.Do(new TransformEntities(_drawing.ActiveLayout, Selection.Ordered, matrix, name));
         }
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
     }
 
     /// <summary>
@@ -1032,7 +1667,7 @@ public sealed class CadCanvas : FrameworkElement
 
         Selection.Set([updated]);
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
         InvalidateVisual();
         return true;
     }
@@ -1052,7 +1687,7 @@ public sealed class CadCanvas : FrameworkElement
 
         Selection.Set(pairs.Select(pair => pair.Updated));
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
         InvalidateVisual();
         return true;
     }
@@ -1065,7 +1700,7 @@ public sealed class CadCanvas : FrameworkElement
         Commands.Do(new DeleteEntities(_drawing.ActiveLayout, Selection.Ordered));
         Selection.Clear();
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
         InvalidateVisual();
         return true;
     }
@@ -1090,7 +1725,7 @@ public sealed class CadCanvas : FrameworkElement
         if (_drawing is not null)
             Selection.Prune(_drawing.ActiveLayout.Entities.Contains);
 
-        DrawingEdited?.Invoke(this, EventArgs.Empty);
+        RaiseDrawingEdited();
         InvalidateVisual();
     }
 
@@ -1151,6 +1786,18 @@ public sealed class CadCanvas : FrameworkElement
 
         if (extend) Selection.AddRange(hits);
         else Selection.Set(hits);
+    }
+
+    /// <summary>
+    /// Says the drawing changed, having first put the handles back where the
+    /// geometry now is. One method rather than a raise at each call site,
+    /// because the site that forgets is a set of squares left floating
+    /// somewhere the object no longer is.
+    /// </summary>
+    private void RaiseDrawingEdited()
+    {
+        RefreshGrips();
+        DrawingEdited?.Invoke(this, EventArgs.Empty);
     }
 
     private void SyncViewport()

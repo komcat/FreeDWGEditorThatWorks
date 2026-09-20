@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -38,6 +39,27 @@ public sealed class SLine : SceneEntity
 
         if (modes.HasFlag(SnapModes.Midpoint))
             into.Add(new SnapCandidate(Vec2.Lerp(Start, End, 0.5), SnapKind.Midpoint));
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        into.Add(new Grip(Start, GripRole.Shape, 0));
+        into.Add(new Grip(End, GripRole.Shape, 1));
+
+        // The midpoint moves the whole line rather than stretching it. A
+        // handle in the middle that pulled one end would be a coin toss over
+        // which end, and every CAD tool answers it the same way.
+        into.Add(new Grip(Vec2.Lerp(Start, End, 0.5), GripRole.Move, 2));
+    }
+
+    protected override bool MoveGripGeometry(in Grip grip, Vec2 to)
+    {
+        switch (grip.Index)
+        {
+            case 0: Start = to; return true;
+            case 1: End = to; return true;
+            default: return false;
+        }
     }
 
     protected override void TransformGeometry(in Mat3 transform)

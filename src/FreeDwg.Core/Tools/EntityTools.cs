@@ -28,6 +28,9 @@ public abstract class EntityTool : CanvasTool
     /// <summary>Entities picked so far, for the canvas to highlight.</summary>
     protected readonly List<SceneEntity> Picked = new();
 
+    /// <summary>Every click of one of these is aimed at an object.</summary>
+    public override bool WantsEntity => true;
+
     public IReadOnlyList<SceneEntity> PickedEntities => Picked;
 
     /// <summary>
@@ -73,55 +76,72 @@ public sealed class ExtendTool : EntityTool
 }
 
 /// <summary>
-/// Two lines, then the corner between them is rounded. Where each line is
+/// Two edges, then the corner between them is rounded. Where each edge is
 /// clicked decides which half of it survives.
 /// </summary>
+/// <remarks>
+/// The two clicks can be on two separate lines, or on two segments of the
+/// same polyline -- which is how a drawn rectangle gets a rounded corner,
+/// and is the case this tool silently did nothing about until it could edit
+/// a polyline in place.
+/// </remarks>
 public class FilletTool : EntityTool
 {
     private Vec2 _firstPick;
 
-    /// <summary>Radius of the arc, or zero to bring the lines to a sharp corner.</summary>
+    /// <summary>Radius of the arc, or zero to bring the edges to a sharp corner.</summary>
     public double Radius { get; set; }
 
     public override string Name => "fillet";
 
     public override string Prompt => Picked.Count == 0
         ? Opening
-        : "Fillet: click the second line, on the side to keep";
+        : $"{Verb}: click the second edge, on the side to keep";
 
-    protected virtual string Opening => Describe("Fillet", "radius");
+    protected virtual string Verb => "Fillet";
+
+    protected virtual string Opening => Describe("radius");
 
     /// <summary>
     /// Says what the size is and where to change it. A prompt that reports a
     /// radius of zero without saying how to make it anything else is a dead
     /// end, and this is the only place the user is looking at the time.
     /// </summary>
-    protected string Describe(string verb, string measure) => Radius > 0
-        ? $"{verb} ({measure} {Radius:0.###}, change it in the Radius box): click the first line, on the side to keep"
-        : $"{verb} ({measure} 0, a sharp corner - set the Radius box for a rounded one): click the first line, on the side to keep";
+    protected string Describe(string measure) => Radius > 0
+        ? $"{Verb} ({measure} {Radius:0.###}, type to change it): click the first edge, on the side to keep"
+        : $"{Verb} ({measure} 0, a sharp corner - type a number for a rounded one): click the first edge, on the side to keep";
 
     public override EditPlan Click(in EntityPick pick)
     {
-        if (pick.Entity is not SLine line) return EditPlan.Nothing;
+        if (pick.Entity is not (SLine or SPolyline)) return EditPlan.Nothing;
 
         if (Picked.Count == 0)
         {
-            Picked.Add(line);
+            Picked.Add(pick.Entity);
             _firstPick = pick.World;
             return EditPlan.Nothing;
         }
 
-        var first = (SLine)Picked[0];
+        var first = Picked[0];
         Picked.Clear();
 
-        // The same line twice has no corner with itself.
-        if (ReferenceEquals(first, line)) return EditPlan.Nothing;
+        // Two segments of one polyline: the corner is theirs, and the
+        // polyline stays a polyline.
+        if (first is SPolyline polyline && ReferenceEquals(first, pick.Entity))
+            return Build(polyline, _firstPick, pick.World);
 
-        return Build(first, _firstPick, line, pick.World);
+        // Two separate lines. The same line twice has no corner with itself.
+        if (first is SLine a && pick.Entity is SLine b && !ReferenceEquals(a, b))
+            return Build(a, _firstPick, b, pick.World);
+
+        return EditPlan.Nothing;
     }
 
     protected virtual EditPlan Build(SLine first, Vec2 firstPick, SLine second, Vec2 secondPick) =>
         Corners.Fillet(first, firstPick, second, secondPick, Radius);
+
+    protected virtual EditPlan Build(SPolyline polyline, Vec2 firstPick, Vec2 secondPick) =>
+        Corners.Fillet(polyline, firstPick, secondPick, Radius);
 }
 
 /// <summary>The same two picks as a fillet, cut straight instead of rounded.</summary>
@@ -129,10 +149,15 @@ public sealed class ChamferTool : FilletTool
 {
     public override string Name => "chamfer";
 
-    protected override string Opening => Describe("Chamfer", "distance");
+    protected override string Verb => "Chamfer";
+
+    protected override string Opening => Describe("distance");
 
     protected override EditPlan Build(SLine first, Vec2 firstPick, SLine second, Vec2 secondPick) =>
         Corners.Chamfer(first, firstPick, second, secondPick, Radius);
+
+    protected override EditPlan Build(SPolyline polyline, Vec2 firstPick, Vec2 secondPick) =>
+        Corners.Chamfer(polyline, firstPick, secondPick, Radius);
 }
 
 /// <summary>

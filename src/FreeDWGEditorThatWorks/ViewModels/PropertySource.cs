@@ -63,14 +63,26 @@ public static class PropertySource
     private static void AddSettings(CadCanvas canvas, List<PropertyRow> rows)
     {
         rows.Add(new PropertyRow(Settings, "Fillet radius",
-            "Radius of the arc a fillet inserts, and the distance a chamfer cuts back. "
-            + "Zero brings the two lines to a sharp corner.",
-            PropertyRow.Number(canvas.CornerRadius),
+            "Radius of the arc a fillet inserts. Zero brings the two edges to a sharp corner. "
+            + "With the fillet tool in hand you can also just type a number on the canvas.",
+            PropertyRow.Number(canvas.FilletRadius),
             text =>
             {
                 if (!PropertyRow.TryNumber(text, out double value) || value < 0) return false;
 
-                canvas.CornerRadius = value;
+                canvas.FilletRadius = value;
+                return true;
+            }));
+
+        rows.Add(new PropertyRow(Settings, "Chamfer distance",
+            "How far back along each edge a chamfer cuts, which makes the cut itself 45 degrees "
+            + "on a square corner. Its own number: a chamfer and a fillet are different measurements.",
+            PropertyRow.Number(canvas.ChamferDistance),
+            text =>
+            {
+                if (!PropertyRow.TryNumber(text, out double value) || value < 0) return false;
+
+                canvas.ChamferDistance = value;
                 return true;
             }));
 

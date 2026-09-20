@@ -460,7 +460,7 @@ public sealed class PropertyPanelTests
         double radius = OnCanvas((canvas, _) =>
         {
             Row(PropertySource.Build(canvas), "Fillet radius").Value = "12.5";
-            return canvas.CornerRadius;
+            return canvas.FilletRadius;
         });
 
         Assert.Equal(12.5, radius, 9);
@@ -486,12 +486,12 @@ public sealed class PropertyPanelTests
     {
         var (radius, shown) = OnCanvas((canvas, _) =>
         {
-            canvas.CornerRadius = 5;
+            canvas.FilletRadius = 5;
 
             var row = Row(PropertySource.Build(canvas), "Fillet radius");
             row.Value = "not a number";
 
-            return (canvas.CornerRadius, row.Value);
+            return (canvas.FilletRadius, row.Value);
         });
 
         // And the row keeps showing the value that is actually in force,
@@ -506,7 +506,7 @@ public sealed class PropertyPanelTests
         double radius = OnCanvas((canvas, _) =>
         {
             Row(PropertySource.Build(canvas), "Fillet radius").Value = "-3";
-            return canvas.CornerRadius;
+            return canvas.FilletRadius;
         });
 
         Assert.Equal(0, radius, 9);

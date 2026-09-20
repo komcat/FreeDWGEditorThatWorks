@@ -1,4 +1,5 @@
-﻿using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Editing;
+using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Picking;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Rendering;
@@ -130,6 +131,13 @@ public sealed class SViewport : SceneEntity
 
         if (modes.HasFlag(SnapModes.Center))
             into.Add(new SnapCandidate(PaperRect.Center, SnapKind.Center));
+    }
+
+    public override void CollectGrips(ICollection<Grip> into)
+    {
+        // None yet. A viewport frame is paper-space furniture, and resizing
+        // one has to answer what happens to the view inside it -- a question
+        // paper space has not been asked yet.
     }
 
     protected override void TransformGeometry(in Mat3 transform) =>

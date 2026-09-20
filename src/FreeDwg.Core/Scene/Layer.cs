@@ -7,12 +7,18 @@ public sealed class Layer
 {
     public Layer(string name) { Name = name; }
 
-    public string Name { get; }
-    public Rgb Color { get; init; } = Rgb.White;
-    public Lineweight Lineweight { get; init; } = Lineweight.Default;
+    /// <summary>
+    /// Editable, along with the three below it: a layer is a thing the user
+    /// renames and recolours, and every change to one goes through
+    /// <c>ChangeLayer</c> so that it can be undone like anything else.
+    /// </summary>
+    public string Name { get; set; }
+
+    public Rgb Color { get; set; } = Rgb.White;
+    public Lineweight Lineweight { get; set; } = Lineweight.Default;
 
     /// <summary>Dash pattern entities on this layer inherit when theirs is ByLayer.</summary>
-    public Linetype? Linetype { get; init; }
+    public Linetype? Linetype { get; set; }
 
     public bool IsOn { get; set; } = true;
     public bool IsFrozen { get; set; }
