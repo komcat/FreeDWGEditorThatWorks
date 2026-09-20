@@ -31,6 +31,24 @@ public sealed class SnapEngine
     /// </summary>
     public double PolarAngle { get; set; } = Polar.DefaultIncrement;
 
+    /// <summary>
+    /// Whether polar angles are measured from the previous segment rather
+    /// than from east.
+    /// </summary>
+    /// <remarks>
+    /// Relative is what drafting usually means by an angle: the next run of
+    /// a polyline turns thirty degrees from the last one, not thirty degrees
+    /// from the horizon. With nothing drawn yet there is no previous segment
+    /// to be relative to, and it falls back to east on its own.
+    /// <para>
+    /// It applies only to the rays out of the point being drawn from.
+    /// Tracking rays stay absolute: lining up level with a corner is the
+    /// whole point of them, and rotating them with the last segment would
+    /// take that away.
+    /// </para>
+    /// </remarks>
+    public bool PolarRelative { get; set; } = true;
+
     public Grid Grid { get; } = new();
 
     /// <summary>Reused between frames; snapping runs on every mouse move.</summary>
@@ -46,6 +64,7 @@ public sealed class SnapEngine
     private readonly List<Vec2> _crossings = new();
     private readonly List<Vec2> _origins = new();
     private readonly List<SnapKind> _originKinds = new();
+    private readonly List<double> _originBases = new();
 
     /// <summary>
     /// A ceiling on the pieces considered for crossings. Pairing them is
@@ -108,14 +127,15 @@ public sealed class SnapEngine
     /// one outcome nobody wants.
     /// </remarks>
     public SnapResult Resolve(Layout layout, IReadOnlyList<Layer> layers,
-        Vec2 cursor, double tolerance, Vec2? from = null, double pixelsPerUnit = 1)
+        Vec2 cursor, double tolerance, Vec2? from = null, double pixelsPerUnit = 1,
+        Vec2? before = null)
     {
         if (FindObjectSnap(layout, layers, cursor, tolerance, from) is { Found: true } hit) return hit;
 
         // Alignment sits under the object snaps and over ortho: it is a
         // deliberate line-up with something real, where ortho is only a
         // constraint on the direction of travel.
-        if (TryAlign(cursor, tolerance, from) is { Found: true } aligned) return aligned;
+        if (TryAlign(cursor, tolerance, from, before) is { Found: true } aligned) return aligned;
 
         if (Ortho && from is { } previous) return SnapResult.Miss(Snapping.Ortho.Constrain(previous, cursor));
 
@@ -307,10 +327,11 @@ public sealed class SnapEngine
     /// falls out for free -- and that crossing, a known height met at a known
     /// angle, is the most useful thing here.
     /// </remarks>
-    private SnapResult TryAlign(Vec2 cursor, double tolerance, Vec2? from)
+    private SnapResult TryAlign(Vec2 cursor, double tolerance, Vec2? from, Vec2? before)
     {
         _origins.Clear();
         _originKinds.Clear();
+        _originBases.Clear();
 
         if (Modes.HasFlag(SnapModes.Tracking))
         {
@@ -318,6 +339,7 @@ public sealed class SnapEngine
             {
                 _origins.Add(point);
                 _originKinds.Add(SnapKind.Tracking);
+                _originBases.Add(0);
             }
         }
 
@@ -327,6 +349,7 @@ public sealed class SnapEngine
         {
             _origins.Add(start);
             _originKinds.Add(SnapKind.Polar);
+            _originBases.Add(BaseAngle(start, before));
         }
 
         if (_origins.Count == 0) return SnapResult.Miss(cursor);
@@ -343,8 +366,8 @@ public sealed class SnapEngine
                 {
                     for (int j = 0; j < rays; j++)
                     {
-                        if (!Polar.Cross(_origins[a], Polar.Direction(PolarAngle, i),
-                                _origins[b], Polar.Direction(PolarAngle, j), out var crossing))
+                        if (!Polar.Cross(_origins[a], Polar.Direction(PolarAngle, i, _originBases[a]),
+                                _origins[b], Polar.Direction(PolarAngle, j, _originBases[b]), out var crossing))
                         {
                             continue;
                         }
@@ -367,7 +390,7 @@ public sealed class SnapEngine
         {
             for (int i = 0; i < rays; i++)
             {
-                if (!Polar.Project(_origins[origin], Polar.Direction(PolarAngle, i),
+                if (!Polar.Project(_origins[origin], Polar.Direction(PolarAngle, i, _originBases[origin]),
                         cursor, tolerance, out var point, out double offset))
                 {
                     continue;
@@ -381,6 +404,19 @@ public sealed class SnapEngine
         }
 
         return best;
+    }
+
+    /// <summary>
+    /// Which way step zero points out of the point being drawn from: along
+    /// the previous segment when there is one and relative angles are
+    /// wanted, and east otherwise.
+    /// </summary>
+    private double BaseAngle(Vec2 from, Vec2? before)
+    {
+        if (!PolarRelative || before is not { } previous) return 0;
+
+        Vec2 run = from - previous;
+        return run.LengthSquared < 1e-24 ? 0 : run.Angle();
     }
 
     private static SnapModes ToMode(SnapKind kind) => kind switch

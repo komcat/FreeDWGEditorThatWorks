@@ -109,9 +109,14 @@ public static class Polar
     public static int Count(double increment) =>
         (int)Math.Round(360.0 / Math.Max(increment, MinIncrement));
 
-    public static Vec2 Direction(double increment, int step)
+    /// <param name="baseRadians">
+    /// The direction step zero points in. Nought is east, which is how
+    /// angles are measured on a drawing; the direction of the previous
+    /// segment is the other useful answer.
+    /// </param>
+    public static Vec2 Direction(double increment, int step, double baseRadians = 0)
     {
-        double radians = step * Math.Max(increment, MinIncrement) * Math.PI / 180.0;
+        double radians = baseRadians + step * Math.Max(increment, MinIncrement) * Math.PI / 180.0;
 
         // Cleaned on the axes. cos(pi/2) is 6e-17 rather than nought, and a
         // vertical ray carrying that drifts sideways by a rounding step for

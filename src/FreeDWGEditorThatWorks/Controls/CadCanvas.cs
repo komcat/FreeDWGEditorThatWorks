@@ -246,8 +246,14 @@ public sealed class CadCanvas : FrameworkElement
 
         Vec2? from = _tool is { InProgress: true } tool ? tool.Points[^1] : null;
 
+        // The point before that, so polar angles can be measured from the
+        // segment just drawn rather than from the horizon.
+        Vec2? before = _tool is { InProgress: true, Points.Count: >= 2 } run
+            ? run.Points[^2]
+            : null;
+
         _snap = Snapping.Resolve(_drawing.ActiveLayout, _drawing.Layers,
-            world, SnapTolerance, from, Camera.Scale);
+            world, SnapTolerance, from, Camera.Scale, before);
 
         AcquireForTracking();
         return _snap.Point;

@@ -27,8 +27,9 @@ public sealed class SnapTests
         return drawing;
     }
 
-    private static SnapResult Snap(SceneDrawing drawing, SnapEngine engine, Vec2 cursor, Vec2? from = null) =>
-        engine.Resolve(drawing.ActiveLayout, drawing.Layers, cursor, Tolerance, from);
+    private static SnapResult Snap(SceneDrawing drawing, SnapEngine engine, Vec2 cursor,
+        Vec2? from = null, Vec2? before = null) =>
+        engine.Resolve(drawing.ActiveLayout, drawing.Layers, cursor, Tolerance, from, 1, before);
 
     // ---- what each entity offers ----------------------------------------
 
@@ -636,6 +637,110 @@ public sealed class SnapTests
         // Below the floor every ray is within reach at once, so none of them
         // would mean anything.
         Assert.Equal(Polar.Count(Polar.MinIncrement), Polar.Count(0.0001));
+    }
+
+    // ---- polar measured from the last segment ---------------------------------
+
+    [Fact]
+    public void RelativeAnglesTurnFromTheSegmentJustDrawn()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45, PolarRelative = true };
+
+        // The last run went up at ninety degrees, so a forty-five degree
+        // turn off it points back along 135, not along 45.
+        var from = new Vec2(0, 100);
+        var before = new Vec2(0, 0);
+
+        double wanted = 135 * Math.PI / 180;
+        var onRay = from + new Vec2(Math.Cos(wanted), Math.Sin(wanted)) * 60;
+
+        var result = Snap(drawing, engine, onRay + new Vec2(0.5, 0.5), from: from, before: before);
+
+        Assert.Equal(SnapKind.Polar, result.Kind);
+        Assert.Equal(135.0, (result.Point - from).Angle() * 180 / Math.PI, 6);
+    }
+
+    [Fact]
+    public void WithRelativeAnglesTheOldAbsoluteRayIsGone()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 90, PolarRelative = true };
+
+        // The last run went up at thirty degrees. At ninety-degree steps the
+        // rays are now 30, 120, 210 and 300 -- due east is no longer one.
+        var from = new Vec2(0, 0);
+        var before = new Vec2(-Math.Cos(Math.PI / 6), -Math.Sin(Math.PI / 6));
+
+        Assert.False(Snap(drawing, engine, new Vec2(100, 0), from: from, before: before).Found);
+    }
+
+    [Fact]
+    public void AbsoluteAnglesIgnoreTheLastSegment()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 90, PolarRelative = false };
+
+        var from = new Vec2(0, 0);
+        var before = new Vec2(-Math.Cos(Math.PI / 6), -Math.Sin(Math.PI / 6));
+
+        // Switched off, east is a ray again whatever came before.
+        var result = Snap(drawing, engine, new Vec2(100, 0.3), from: from, before: before);
+
+        Assert.Equal(SnapKind.Polar, result.Kind);
+        Assert.Equal(new Vec2(100, 0), result.Point);
+    }
+
+    [Fact]
+    public void TheFirstSegmentHasNothingToBeRelativeTo()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 45, PolarRelative = true };
+
+        // One point picked, so there is no previous run: it falls back to
+        // east on its own rather than needing to be told.
+        var result = Snap(drawing, engine, new Vec2(100, 0.4), from: Vec2.Zero);
+
+        Assert.Equal(SnapKind.Polar, result.Kind);
+        Assert.Equal(new Vec2(100, 0), result.Point);
+    }
+
+    [Fact]
+    public void ADoubledBackPointLeavesTheAnglesWhereTheyWere()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Polar, PolarAngle = 90, PolarRelative = true };
+
+        // The previous point is the same as this one, so the segment has no
+        // direction to measure from.
+        var from = new Vec2(30, 30);
+        var result = Snap(drawing, engine, new Vec2(130, 30.3), from: from, before: from);
+
+        Assert.Equal(new Vec2(130, 30), result.Point);
+    }
+
+    [Fact]
+    public void TrackingRaysStayAbsoluteWhilePolarTurns()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine
+        {
+            Modes = SnapModes.Tracking,
+            PolarAngle = 90,
+            PolarRelative = true,
+        };
+
+        engine.Acquire(new Vec2(10, 40));
+
+        // Lining up level with a corner is the whole point of tracking, and
+        // rotating those rays with the last segment would take it away.
+        var from = new Vec2(0, 0);
+        var before = new Vec2(-Math.Cos(Math.PI / 6), -Math.Sin(Math.PI / 6));
+
+        var result = Snap(drawing, engine, new Vec2(90, 40.3), from: from, before: before);
+
+        Assert.Equal(SnapKind.Tracking, result.Kind);
+        Assert.Equal(new Vec2(90, 40), result.Point);
     }
 
     // ---- ortho ------------------------------------------------------------

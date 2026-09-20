@@ -406,6 +406,19 @@ the two-modes-at-once one.
 cosine a vertical ray carries 6e-17 of sideways drift per unit of length, and
 snapping exists precisely so that points land exactly.
 
+Angles are measured from the **previous segment** by default, which is what
+drafting usually means by one: the next run of a polyline turns thirty
+degrees from the last, not thirty degrees from the horizon. The canvas passes
+the point before the origin as well as the origin, and with only one point
+picked there is no previous run, so it falls back to east on its own rather
+than needing a special case. `Polar relative` in the properties panel turns
+it off.
+
+It applies only to the rays out of the point being drawn from. Tracking rays
+stay absolute -- lining up level with a corner is the whole point of them,
+and rotating them with the last segment would take that away. That is a
+deliberate divergence from AutoCAD, which applies one setting to both.
+
 Still to do: polygon, which needs somewhere to ask for a side count; text,
 which needs an editor; offset, which needs real curve offsetting; array,
 which needs row and column counts; and explode.

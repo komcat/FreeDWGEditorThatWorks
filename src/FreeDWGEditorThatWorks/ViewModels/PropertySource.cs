@@ -100,6 +100,20 @@ public static class PropertySource
                 return true;
             }));
 
+        rows.Add(new PropertyRow(Settings, "Polar relative",
+            "Measures polar angles from the segment just drawn rather than from east, so the next "
+            + "run turns by the angle rather than arriving at it. Falls back to east when nothing "
+            + "has been drawn yet.",
+            PropertyRow.Flag(canvas.Snapping.PolarRelative),
+            text =>
+            {
+                if (!PropertyRow.TryFlag(text, out bool value)) return false;
+
+                canvas.Snapping.PolarRelative = value;
+                canvas.Redraw();
+                return true;
+            }));
+
         rows.Add(new PropertyRow(Settings, "Grid",
             "Shows the drawing grid, and snaps to it when nothing else is near the cursor.",
             PropertyRow.Flag(canvas.Snapping.Grid.IsVisible),
