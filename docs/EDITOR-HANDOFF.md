@@ -1,13 +1,37 @@
-﻿# Handoff: the reader is done, the editor is under way
+﻿# Handoff: the reader is done, the editor draws
 
-Written at commit `1325ee0` and updated as the editor milestones land.
-Everything below is either in the repo or in the commit messages; this is the
-map, not a second copy.
+Written at commit `1325ee0` and updated as the milestones land; current as of
+`f1bd651`. Everything below is either in the repo or in the commit messages;
+this is the map, not a second copy.
+
+## Start here
+
+The reader is complete and the editor draws, modifies and undoes. **What it
+cannot do is save.** That is E5, and it is the whole of what stands between
+this and a program someone could use on a real file. The groundwork for it --
+`SourceHandle` carried on everything, every mutation going through the
+command stack -- has been in since before the editor phase began, on purpose.
+
+Picking this up cold, read in this order:
+
+1. `CLAUDE.md`, for the conventions that are load-bearing. Several of them
+   are load-bearing because breaking them was tried.
+2. **The gap that is not yet closed**, below. It is E5's first problem, and
+   it is an architectural one rather than a coding one.
+3. `tests/FreeDwg.Tests/README.md`, before touching anything the render tests
+   cover.
+
+439 tests pass in about a second. Two kinds of them exist because ordinary
+tests could not catch what they catch: the render tests assert **pixels at
+world coordinates**, because three bugs so far were invisible to the object
+model; and `StartupTests` runs the real executable and waits for a **window**,
+because a `StaticResource` that resolves to nothing compiles clean, passes
+everything else, and kills the app before it draws.
 
 ## Where things stand
 
-The reader is complete: M1–M5 of the original plan. E1 has landed on top of
-it. 165 tests pass in about half a second.
+The reader is M1–M5 of the original plan. Everything from E1 down landed in
+the editor phase.
 
 | | | |
 |---|---|---|
@@ -17,13 +41,24 @@ it. 165 tests pass in about half a second.
 | M4 | `25bc589` | splines, ellipses, hatches, dimensions |
 | M5 | `6b2495d` | paper space, viewports |
 | — | `1325ee0` | the render harness became `tests/` |
-| E1 | — | selection, hit testing and the spatial index |
-| — | — | icon toolbar and tool palette |
-| E2 | — | command stack, undo/redo, change log |
-| E4 | — | new documents and six draw tools |
-| E4 | — | object snap, ortho, grid; one canvas mode |
-| E3 | — | move, copy, rotate, scale, mirror |
-| E4 | — | curve intersection: trim, extend, fillet, chamfer, tangent |
+| E1 | `6a5d4e8` | selection, hit testing and the spatial index |
+| — | `15bbf56` | icon toolbar and tool palette |
+| E2 | `a53c135` | command stack, undo/redo, change log; new documents and six draw tools |
+| E4 | `25f2d64` | object snap, ortho, grid; one canvas mode |
+| E3 | `cfeb9e1` | move, copy, rotate, scale, mirror |
+| E4 | `679c2fd` | curve intersection: trim, extend, fillet, chamfer, tangent |
+| — | `f5cc9a9` `dc545a3` | the corner radius moves onto the canvas, and becomes findable |
+| — | `21b2134` | the properties panel, then `5244d4a` `ec3c7e9` `c4b33e8` on top of it |
+| E4 | `d5e7d1a` | perpendicular, tangent and tracking snaps |
+| E4 | `f112317` | the intersection snap |
+| E4 | `6d0f6d7` `71e381c` | polar tracking, measured from the last segment |
+| — | `c76a19b` | tangent and perpendicular aim at the object, not at the answer |
+| E4 | `f1bd651` | typed lengths, and document units |
+| E5 | — | **save — not started** |
+
+E1 and E2 are done. E3 is done but for grips. E4 is done but for polygon,
+text, hatch, spline, block insertion, offset, array and explode. E5 has not
+been started.
 
 The commit messages carry the reasoning for each decision and a `Known gaps`
 paragraph apiece. They are worth reading before changing that area — several
@@ -269,6 +304,14 @@ corner, which is quietly one of AutoCAD's most used features. Lines only --
 arc-to-line fillets are a much larger problem and line-to-line is the
 overwhelming majority of real use.
 
+**The radius lives on the canvas as `CornerRadius`,** not on the tool. It was
+copied into the tool at construction *and* pushed in again on change, which
+is two places to forget and exactly how a setting ends up silently doing
+nothing. The canvas applies it when a tool starts and whenever it changes, so
+both orders -- type then pick, pick then type -- are the same path, and both
+are tested. It shows in the status bar at all times as well, so the current
+radius is visible without having to start the tool to find out.
+
 Tangent mate is the odd one out: it moves a circle until it touches a line,
 keeps the circle's identity and handle, and so goes through the transform
 command rather than a replacement. It keeps the circle on the side it
@@ -362,14 +405,7 @@ drawing has to arrive as 914.4.
 `ResolvePoint` sets the current aim as well as returning it. It used not to,
 which left the method half doing its job -- anything calling it directly got
 the answer while the preview, the length readout and a typed length all still
-looked at the previous position. The figure itself lives on the canvas
-as `CornerRadius`, not on the tool: it was copied into the tool at
-construction *and* pushed in again on change, which is two places to forget
-and exactly how a setting ends up silently doing nothing. The canvas applies
-it when a tool starts and whenever it changes, so both orders -- type then
-pick, pick then type -- are the same path, and both are tested. It is also
-shown in the status bar at all times, so the current radius is visible
-without having to start the tool to find out.
+looked at the previous position. Four canvas tests failed on it immediately.
 
 Numbers are parsed with the invariant culture: a CAD user types a decimal
 point, whatever their machine thinks the separator is.
@@ -453,9 +489,11 @@ stay absolute -- lining up level with a corner is the whole point of them,
 and rotating them with the last segment would take that away. That is a
 deliberate divergence from AutoCAD, which applies one setting to both.
 
-Still to do: polygon, which needs somewhere to ask for a side count; text,
-which needs an editor; offset, which needs real curve offsetting; array,
-which needs row and column counts; and explode.
+Still to do, and still dark in the palette: polygon, which needs somewhere to
+ask for a side count; text, which needs an editor; hatch and block insertion,
+which need a boundary and a definition chooser respectively; spline; offset,
+which needs real curve offsetting; array, which needs row and column counts;
+and explode, which is what trim and extend are waiting on for polylines.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at
@@ -464,6 +502,22 @@ all; every other version from R14 up is supported.
 Regenerating dimensions after an edit is the one place the anonymous-block
 shortcut stops paying: at that point real dimension layout has to be written.
 It is not needed before E5.
+
+## Where to go next, ranked
+
+1. **E5, save.** Nothing else changes what this program *is*. Start with the
+   `DwgSession` described above; the writer is the easy half.
+2. **Explode.** The smallest piece that unlocks another: trim and extend
+   handle lines, arcs and circles only, so a polyline has to be broken up
+   first, and today there is no way to break one up.
+3. **Grips.** E3's last piece and what Stretch is waiting for. Moving one
+   vertex rather than a whole object is the edit people reach for most, and
+   it will want somewhere better for overlay geometry to live than device
+   space inside `CadCanvas`.
+4. **The rest of numeric entry** -- an angle field, and XY. Lengths alone
+   already cover most of drawing to size, which is why this sits below grips
+   rather than above them.
+5. **The remaining draw tools**, in the order the palette lists them.
 
 ## Traps already paid for
 
@@ -510,9 +564,21 @@ noticed:
 - The palette scrolls rather than reflows, and is three columns because 28
   buttons in two did not fit a 700px window. A fourth group would want a real
   layout rather than another column.
-- There is no coordinate entry: every tool is mouse-only, so nothing can be
-  drawn to an exact size. With snapping in, this is now the single biggest
-  thing between here and real work.
+- Typed entry is **lengths only**, and only while a tool is mid-pick. There
+  is no angle field (polar tracking sets the angle instead), no absolute or
+  relative XY, and no compound `5'6"`. So a circle still cannot be given a
+  diameter and a rectangle cannot be given two sides: both take their size
+  from wherever the second click lands.
+- Tracking acquires a point the moment the cursor rests on one, with no
+  dwell. AutoCAD waits about a second. No timer is simpler and has not been a
+  nuisance, but a drawing dense enough to acquire something in passing would
+  want one.
+- The drawing settings dialog holds units and decimal places only. Grid
+  spacing, ortho, snap modes and the corner radius are in the properties
+  panel, which is a reasonable place for them but not the obvious one to look
+  for a setting.
+- `Drawing.Units` labels lengths. Angles are always degrees and areas are
+  never shown, so nothing else has yet had to learn what a unit is.
 - The snap search is a spatial-index query per mouse move, which is fine, but
   it collects every candidate from every nearby entity before choosing. A
   drawing with a very dense block under the cursor would feel it.

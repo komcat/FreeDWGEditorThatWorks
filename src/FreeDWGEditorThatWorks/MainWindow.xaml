@@ -143,7 +143,7 @@
                             <RadioButton x:Name="RectangleButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Rectangle}" ToolTip="Rectangle  -  two opposite corners" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  needs a side count to ask for, so it waits for command input" />
+                                         Tag="{StaticResource Icon.Polygon}" ToolTip="Polygon  -  needs somewhere to ask for a side count; typed entry takes lengths only so far" />
                             <RadioButton x:Name="CircleButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Circle}" ToolTip="Circle  -  centre, then a point on the rim" />
                             <RadioButton x:Name="ArcButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
@@ -151,15 +151,15 @@
                             <RadioButton x:Name="EllipseButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Ellipse}" ToolTip="Ellipse  -  centre, the end of the major axis, then the minor" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Spline}" ToolTip="Spline  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Spline}" ToolTip="Spline  -  needs control point entry, and did not come with the other draw tools" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Point}" ToolTip="Point  -  POINT is not imported yet either" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Hatch}" ToolTip="Hatch  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Hatch}" ToolTip="Hatch  -  needs a boundary to be traced or found, which none of the draw tools do" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Text}" ToolTip="Text  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Text}" ToolTip="Text  -  needs an editor to type into on the canvas" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Block}" ToolTip="Insert block  -  arrives with the draw tools (E4)" />
+                                         Tag="{StaticResource Icon.Block}" ToolTip="Insert block  -  needs a chooser for the definitions the drawing already holds" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Dimension}" ToolTip="Dimension  -  needs real dimension layout, which is E5" />
                         </UniformGrid>
