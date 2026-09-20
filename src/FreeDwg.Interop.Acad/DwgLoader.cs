@@ -109,18 +109,33 @@ public static class DwgLoader
         /// The scene holds bare numbers, so this changes nothing about the
         /// geometry; it says what those numbers count, which is what lets a
         /// length typed as 2in land correctly in a drawing built in inches.
-        /// Anything outside the four we model -- and Unitless, which real
-        /// files do carry -- falls back to millimetres rather than guessing.
+        /// A file naming a unit this model does not carry, or naming none at
+        /// all, reads as Unitless and is reported -- it used to fall back to
+        /// millimetres, which put a unit on the readout that nothing in the
+        /// file had said.
         /// </remarks>
         private void ConvertUnits()
         {
-            _drawing.Units = _document.Header?.InsUnits switch
+            var insUnits = _document.Header?.InsUnits ?? ACadSharp.Types.Units.UnitsType.Unitless;
+
+            _drawing.Units = insUnits switch
             {
+                ACadSharp.Types.Units.UnitsType.Millimeters => DrawingUnits.Millimetres,
+                ACadSharp.Types.Units.UnitsType.Centimeters => DrawingUnits.Centimetres,
                 ACadSharp.Types.Units.UnitsType.Meters => DrawingUnits.Metres,
+                ACadSharp.Types.Units.UnitsType.Kilometers => DrawingUnits.Kilometres,
                 ACadSharp.Types.Units.UnitsType.Inches => DrawingUnits.Inches,
                 ACadSharp.Types.Units.UnitsType.Feet => DrawingUnits.Feet,
-                _ => DrawingUnits.Millimetres,
+                ACadSharp.Types.Units.UnitsType.Yards => DrawingUnits.Yards,
+                ACadSharp.Types.Units.UnitsType.Miles => DrawingUnits.Miles,
+                _ => DrawingUnits.Unitless,
             };
+
+            if (_drawing.Units != DrawingUnits.Unitless) return;
+
+            _diagnostics.Note(insUnits == ACadSharp.Types.Units.UnitsType.Unitless
+                ? "The file does not say what its units are; lengths are shown as bare numbers."
+                : $"Unit {insUnits} is not one this editor models; lengths are shown as bare numbers.");
         }
 
         private void ConvertLinetypes()
@@ -544,9 +559,24 @@ public static class DwgLoader
             return list.ToArray();
         }
 
+        /// <summary>
+        /// How tall the text actually is.
+        /// </summary>
+        /// <remarks>
+        /// A text style with a non-zero height <em>fixes</em> it: AutoCAD
+        /// does not even ask when placing text on one, and whatever number
+        /// happens to be sitting in the entity is ignored. Reading the
+        /// entity's is right only when the style leaves it open, and getting
+        /// this backwards draws real drawings at the wrong size -- in one of
+        /// the sample files, thirty-seven of thirty-eight labels.
+        /// </remarks>
+        private static double HeightOf(double entityHeight, TextStyle? style) =>
+            style is { Height: > 0 } fixedHeight ? fixedHeight.Height : entityHeight;
+
         private SText? ConvertText(TextEntity text)
         {
-            if (string.IsNullOrEmpty(text.Value) || text.Height <= 0) return null;
+            double height = HeightOf(text.Height, text.Style);
+            if (string.IsNullOrEmpty(text.Value) || height <= 0) return null;
 
             var (family, bold, italic, styleWidth, styleOblique) = _fonts.Resolve(text.Style);
 
@@ -563,12 +593,12 @@ public static class DwgLoader
 
             double widthFactor = text.WidthFactor > 0 ? text.WidthFactor : styleWidth;
 
-            return new SText(new[] { text.Value }, position, text.Height)
+            return new SText(new[] { text.Value }, position, height)
             {
                 Rotation = text.Rotation,
                 WidthFactor = widthFactor,
                 ObliqueAngle = text.ObliqueAngle != 0 ? text.ObliqueAngle : styleOblique,
-                LineStep = text.Height,
+                LineStep = height,
                 AnchorX = anchorX,
                 AnchorY = anchorY,
                 FontFamily = family,
@@ -582,17 +612,19 @@ public static class DwgLoader
             // ACadSharp already strips MTEXT's inline formatting codes and
             // splits on the paragraph breaks, which is the bulk of the work.
             string[] lines = mtext.GetPlainTextLines();
-            if (lines.Length == 0 || mtext.Height <= 0) return null;
+
+            double height = HeightOf(mtext.Height, mtext.Style);
+            if (lines.Length == 0 || height <= 0) return null;
 
             var (family, bold, italic, _, _) = _fonts.Resolve(mtext.Style);
             var (anchorX, anchorY) = AnchorFor(mtext.AttachmentPoint);
 
             double factor = mtext.LineSpacing > 0 ? mtext.LineSpacing : 1.0;
 
-            return new SText(lines, ToVec2(mtext.InsertPoint), mtext.Height)
+            return new SText(lines, ToVec2(mtext.InsertPoint), height)
             {
                 Rotation = mtext.Rotation,
-                LineStep = mtext.Height * MTextLineSpacingBase * factor,
+                LineStep = height * MTextLineSpacingBase * factor,
                 AnchorX = anchorX,
                 AnchorY = anchorY,
                 WrapWidth = mtext.RectangleWidth > 0 ? mtext.RectangleWidth : 0,

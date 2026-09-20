@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 590 tests, ~1s
+dotnet test                 # 609 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -173,6 +173,21 @@ with no WPF and no parser present. Do not add either reference to Core.
   Same as DWG's INSUNITS, and read from it on import. Changing the unit
   relabels the drawing rather than rescaling it. Conversion happens only when
   a length is *typed*, so `2in` lands correctly in a millimetre drawing.
+  A file that names no unit, or one not modelled, reads as `Unitless` and is
+  **reported** -- it used to fall back to millimetres, which put a unit on
+  the readout that nothing in the file had said.
+- **A text style with a fixed height wins over the entity's.** Non-zero
+  `TextStyle.Height` means AutoCAD never asked, so whatever number is on the
+  entity is not the answer. Getting this backwards drew thirty-seven of
+  thirty-eight labels at the wrong size in one ordinary sample file, and
+  dropped text whose height was legitimately zero.
+- **A DWG names a font *file*, not a family.** `arialn.ttf` is "Arial
+  Narrow", `times.ttf` is "Times New Roman". `FontResolver.ResolveFile` is a
+  shell-installed hook, like `TextMetrics.Measure`, because only the shell
+  owns a font stack. Anything that will not resolve is substituted *and
+  reported*; silently handing WPF a family nobody has is a drawing in the
+  wrong typeface with a status bar saying nothing. Extension-less `TXT`,
+  `SIMPLEX` and `romanc` are SHX, not TrueType.
 - **Culling and picking go through `Layout.Index`,** a BVH. It answers with
   positions into the entity list and callers sort them, because entity order
   is painting order.

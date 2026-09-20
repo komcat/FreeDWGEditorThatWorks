@@ -22,7 +22,7 @@ Picking this up cold, read in this order:
 3. `tests/FreeDwg.Tests/README.md`, before touching anything the render tests
    cover.
 
-590 tests pass in about a second. Two kinds of them exist because ordinary
+609 tests pass in about a second. Two kinds of them exist because ordinary
 tests could not catch what they catch: the render tests assert **pixels at
 world coordinates**, because three bugs so far were invisible to the object
 model; and `StartupTests` runs the real executable and waits for a **window**,
@@ -165,6 +165,34 @@ or moved. And because ByLayer is resolved away at import, recolouring a layer
 has to go and recolour its entities or the swatch and the drawing disagree;
 `ChangeLayer` restyles the ones still drawn in the layer's old style, which is
 exactly the set that was following it, and leaves an explicit override alone.
+
+**What a folder of real files taught us.** Fourteen ordinary sample drawings
+-- architectural, civil and mechanical, metric and imperial -- were opened
+and compared against what the file actually said. Three things were wrong,
+all of them quietly, and none of them visible in a fixture written here,
+because a fixture only ever contains what was thought of.
+
+*Units.* Only three INSUNITS values were mapped and everything else fell back
+to millimetres. Nine of the fourteen files were in inches and read correctly;
+the failure is the silent one -- a Unitless file, which is common, was being
+labelled millimetres on the coordinate readout and in the typed-length
+conversion. All eight practical units are mapped now, and anything else says
+so rather than guessing.
+
+*Text height.* A text style with a non-zero height *fixes* it: AutoCAD does
+not ask, and the number on the entity is ignored. The importer was reading
+the entity's. In five of the fourteen files the text sits on fixed-height
+styles, and in one of them thirty-seven of thirty-eight labels disagreed with
+their style -- every one drawn at the wrong size.
+
+*Fonts.* A DWG names a file and WPF wants a family, and the two are the same
+string just often enough to be misleading. Of seventeen distinct fonts in
+that folder, three resolved; five were installed under a different family
+name (`arialn.ttf` is Arial Narrow, `gothic.ttf` is Century Gothic) and
+silently became the default; nine were not on the machine at all, several of
+them SHX carried without an extension and so not even counted as
+substitutions. `FontResolver.ResolveFile` asks the shell, which is the only
+layer that can answer, and everything unresolved is reported.
 
 **Entities understood today:** LINE, CIRCLE, ARC, ELLIPSE, LWPOLYLINE,
 POLYLINE2D/3D, SPLINE, TEXT, MTEXT, HATCH, SOLID, INSERT (incl. MINSERT),
@@ -701,7 +729,9 @@ From the `Known gaps` paragraphs, roughly in order of how often they will be
 noticed:
 
 - SHX fonts are substituted with an outline font, not stroked. Reported in
-  the status bar, so at least it is honest.
+  the status bar, so at least it is honest. So is any TrueType font the
+  machine has not got -- AutoCAD ships `cityb___.ttf` and `sanss___.ttf` and
+  most machines do not have them.
 - Paper space does not draw the sheet, so a layout reads as line work on the
   model background.
 - POINT is unsupported. Harmless for dimension definition points, which live

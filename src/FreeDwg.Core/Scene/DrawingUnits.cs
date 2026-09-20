@@ -1,14 +1,32 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace FreeDwg.Core.Scene;
 
 /// <summary>What one drawing unit means.</summary>
+/// <remarks>
+/// The ones DWG's INSUNITS header carries in practice. A file naming
+/// anything else -- microinches, angstroms and parsecs are all in the
+/// specification -- reads as <see cref="Unitless"/> rather than being
+/// guessed at, because being wrong by a factor of ten thousand is worse
+/// than saying nothing.
+/// </remarks>
 public enum DrawingUnits
 {
+    /// <summary>
+    /// The file did not say, or said something not modelled here. The
+    /// numbers are shown at face value and nothing claims to know what they
+    /// count.
+    /// </summary>
+    Unitless,
+
     Millimetres,
+    Centimetres,
     Metres,
+    Kilometres,
     Inches,
     Feet,
+    Yards,
+    Miles,
 }
 
 /// <summary>
@@ -32,32 +50,57 @@ public static class Units
     /// <summary>How many millimetres one of these is.</summary>
     public static double InMillimetres(DrawingUnits units) => units switch
     {
+        DrawingUnits.Centimetres => 10.0,
         DrawingUnits.Metres => 1000.0,
+        DrawingUnits.Kilometres => 1_000_000.0,
         DrawingUnits.Inches => 25.4,
         DrawingUnits.Feet => 304.8,
+        DrawingUnits.Yards => 914.4,
+        DrawingUnits.Miles => 1_609_344.0,
+
+        // A unitless drawing has to be drawn at some size, and a millimetre
+        // is the least surprising one to pick -- but nothing labels it.
         _ => 1.0,
     };
 
     public static string Suffix(DrawingUnits units) => units switch
     {
+        DrawingUnits.Millimetres => "mm",
+        DrawingUnits.Centimetres => "cm",
         DrawingUnits.Metres => "m",
+        DrawingUnits.Kilometres => "km",
         DrawingUnits.Inches => "in",
         DrawingUnits.Feet => "ft",
-        _ => "mm",
+        DrawingUnits.Yards => "yd",
+        DrawingUnits.Miles => "mi",
+
+        // Deliberately blank: a readout that put "mm" on a drawing whose
+        // file never said so would be inventing the one fact it is there
+        // to report.
+        _ => "",
     };
 
     /// <summary>The name shown in a settings list.</summary>
     public static string Name(DrawingUnits units) => units switch
     {
+        DrawingUnits.Millimetres => "Millimetres (mm)",
+        DrawingUnits.Centimetres => "Centimetres (cm)",
         DrawingUnits.Metres => "Metres (m)",
+        DrawingUnits.Kilometres => "Kilometres (km)",
         DrawingUnits.Inches => "Inches (in)",
         DrawingUnits.Feet => "Feet (ft)",
-        _ => "Millimetres (mm)",
+        DrawingUnits.Yards => "Yards (yd)",
+        DrawingUnits.Miles => "Miles (mi)",
+        _ => "Unitless",
     };
 
     public static IReadOnlyList<DrawingUnits> All { get; } =
     [
-        DrawingUnits.Millimetres, DrawingUnits.Metres, DrawingUnits.Inches, DrawingUnits.Feet,
+        DrawingUnits.Unitless,
+        DrawingUnits.Millimetres, DrawingUnits.Centimetres,
+        DrawingUnits.Metres, DrawingUnits.Kilometres,
+        DrawingUnits.Inches, DrawingUnits.Feet,
+        DrawingUnits.Yards, DrawingUnits.Miles,
     ];
 
     public static bool TryParseName(string text, out DrawingUnits units)

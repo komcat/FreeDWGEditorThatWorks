@@ -94,6 +94,13 @@ that one is clear, with a probe placed off the line by more than half its
 width and less than half an arrowhead -- so it is blank only because the
 arrows really have gone outside.
 
+**`ImportFidelityTests`** covers three things a real file says that this got
+wrong: what its units are, how tall its text is, and which font it asked
+for. All three failed quietly and only against files nobody had opened yet,
+which is the point -- they were found by loading a folder of ordinary sample
+drawings and comparing, not by a fixture written here. A fixture written
+here only ever contains what was thought of.
+
 **`LayerPanelTests`** is about one fact and is short because of it: a row in
 the layers list carries the index of the layer it shows, rather than the
 panel reading the row's position back off the list. With the filter in the
