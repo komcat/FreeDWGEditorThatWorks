@@ -97,7 +97,7 @@ public partial class MainWindow : Window
             RebuildProperties();
         };
 
-        Canvas.Snapping.Modes = SnapModes.Objects;
+        Canvas.Snapping.Modes = SnapModes.Objects | SnapModes.Tracking;
 
         InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(NewDrawing), Key.N, ModifierKeys.Control));
@@ -322,6 +322,9 @@ public partial class MainWindow : Window
         if (MidpointSnapToggle.IsChecked == true) modes |= SnapModes.Midpoint;
         if (CenterSnapToggle.IsChecked == true) modes |= SnapModes.Center;
         if (QuadrantSnapToggle.IsChecked == true) modes |= SnapModes.Quadrant;
+        if (PerpendicularSnapToggle.IsChecked == true) modes |= SnapModes.Perpendicular;
+        if (TangentSnapToggle.IsChecked == true) modes |= SnapModes.Tangent;
+        if (TrackingSnapToggle.IsChecked == true) modes |= SnapModes.Tracking;
         if (GridToggle.IsChecked == true) modes |= SnapModes.Grid;
 
         Canvas.Snapping.Modes = modes;

@@ -74,6 +74,18 @@
                 <ToggleButton x:Name="QuadrantSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
                               Tag="{StaticResource Icon.SnapQuadrant}" Click="OnSnapToggled"
                               ToolTip="Snap to quadrants  -  the top, bottom, left and right of a circle" />
+
+                <Rectangle Style="{StaticResource ToolBarDivider}" />
+
+                <ToggleButton x:Name="PerpendicularSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapPerpendicular}" Click="OnSnapToggled"
+                              ToolTip="Snap perpendicular  -  square onto a line or arc from the point you are drawing from" />
+                <ToggleButton x:Name="TangentSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapTangent}" Click="OnSnapToggled"
+                              ToolTip="Snap tangent  -  where a line from the point you are drawing from just touches a circle" />
+                <ToggleButton x:Name="TrackingSnapToggle" Style="{StaticResource ToolCheck}" IsChecked="True"
+                              Tag="{StaticResource Icon.SnapTracking}" Click="OnSnapToggled"
+                              ToolTip="Tracking  -  hover a point to acquire it, then line up level with it or above it" />
             </StackPanel>
         </Border>
 

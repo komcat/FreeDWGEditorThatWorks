@@ -1,4 +1,4 @@
-using FreeDwg.Core.Geometry;
+﻿using FreeDwg.Core.Geometry;
 
 namespace FreeDwg.Core.Snapping;
 
@@ -26,10 +26,24 @@ public enum SnapModes
     /// <summary>Intersections of the drawing grid.</summary>
     Grid = 1 << 4,
 
-    /// <summary>Everything that belongs to an object, which is everything but the grid.</summary>
-    Objects = Endpoint | Midpoint | Center | Quadrant,
+    /// <summary>
+    /// The foot of a right angle dropped from the point being drawn from.
+    /// </summary>
+    Perpendicular = 1 << 5,
 
-    All = Objects | Grid,
+    /// <summary>Where a line from the point being drawn from touches a circle.</summary>
+    Tangent = 1 << 6,
+
+    /// <summary>
+    /// Lines out from points the cursor has rested on, so a new point can be
+    /// placed level with or above one that already exists.
+    /// </summary>
+    Tracking = 1 << 7,
+
+    /// <summary>Everything that belongs to an object, which is everything but the grid.</summary>
+    Objects = Endpoint | Midpoint | Center | Quadrant | Perpendicular | Tangent,
+
+    All = Objects | Grid | Tracking,
 }
 
 /// <summary>
@@ -45,6 +59,11 @@ public enum SnapKind
     Center,
     Quadrant,
     Grid,
+    Perpendicular,
+    Tangent,
+
+    /// <summary>Lined up with a point the cursor rested on earlier.</summary>
+    Tracking,
 }
 
 /// <summary>One point an entity is offering to snap to.</summary>
@@ -56,4 +75,15 @@ public readonly record struct SnapResult(Vec2 Point, SnapKind Kind)
     public static SnapResult Miss(Vec2 point) => new(point, SnapKind.None);
 
     public bool Found => Kind != SnapKind.None;
+
+    /// <summary>
+    /// Points the answer was lined up with, for the dashed guides that
+    /// explain it. Empty for every snap that stands on its own.
+    /// </summary>
+    /// <remarks>
+    /// A tracked point placed level with a corner across the sheet is
+    /// otherwise indistinguishable from a point placed by hand nearby; the
+    /// guide back to the corner is the whole explanation.
+    /// </remarks>
+    public IReadOnlyList<Vec2> Guides { get; init; } = [];
 }

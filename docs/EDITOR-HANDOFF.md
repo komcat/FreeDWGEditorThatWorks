@@ -354,11 +354,34 @@ without having to start the tool to find out.
 Numbers are parsed with the invariant culture: a CAD user types a decimal
 point, whatever their machine thinks the separator is.
 
-Still to do: intersection and perpendicular snaps (the geometry for the first
-now exists and is just not wired to the snap engine); polygon, which needs
-somewhere to ask for a side count; text, which needs an editor; offset, which
-needs real curve offsetting; array, which needs row and column counts; and
-explode.
+**Perpendicular, tangent and tracking** came later. The first two are the
+snaps that cannot be precomputed per entity, because the answer moves with
+the point the line is being drawn *from*: they live in `Geometry/Projection`,
+work on `CurvePiece`, and are folded into the same nearest-wins pass as the
+rest, so pointing at a real endpoint still beats a computed right angle.
+
+A perpendicular foot beyond the end of a segment is refused rather than
+clamped. Clamped, it is the endpoint, which endpoint snap already offers, and
+offering it again under a name that promises a right angle would be a lie.
+
+Tracking acquires a point whenever the cursor rests on one and lines the next
+point up with it: level, above, or at the crossing of two acquired points,
+which is what someone reaching for the corner of two existing features
+actually wants. AutoCAD makes you hover for about a second first; here it is
+taken at once, which is less deliberate but needs no timer, and the dashed
+guides only appear when the cursor is genuinely lined up, so the extra points
+cost nothing on screen. Only the last two stay acquired, and a new tool or
+Escape forgets them.
+
+The guides matter as much as the snap. A point placed level with a corner on
+the far side of the sheet is otherwise indistinguishable from one placed by
+hand nearby, and the line back to the corner is the whole explanation --
+which is why `SnapResult` carries them.
+
+Still to do: an intersection snap (the geometry exists and is simply not
+wired to the engine); polygon, which needs somewhere to ask for a side count;
+text, which needs an editor; offset, which needs real curve offsetting;
+array, which needs row and column counts; and explode.
 
 **E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
 Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at

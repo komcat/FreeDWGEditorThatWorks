@@ -170,6 +170,216 @@ public sealed class SnapTests
         Assert.Equal(new Vec2(50, 40), result.Point);
     }
 
+    // ---- perpendicular ------------------------------------------------------
+
+    [Fact]
+    public void APerpendicularLandsSquareOnTheLine()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(0, 0), new Vec2(100, 0)));
+        var engine = new SnapEngine { Modes = SnapModes.Perpendicular };
+
+        // Drawing down from (30, 50): the right angle is at (30, 0).
+        var result = Snap(drawing, engine, new Vec2(31, 1), from: new Vec2(30, 50));
+
+        Assert.Equal(SnapKind.Perpendicular, result.Kind);
+        Assert.Equal(new Vec2(30, 0), result.Point);
+    }
+
+    [Fact]
+    public void APerpendicularNeedsSomewhereToBeDrawnFrom()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(0, 0), new Vec2(100, 0)));
+        var engine = new SnapEngine { Modes = SnapModes.Perpendicular };
+
+        // No origin, so there is no right angle to be square to.
+        Assert.False(Snap(drawing, engine, new Vec2(30, 1)).Found);
+    }
+
+    [Fact]
+    public void AFootBeyondTheEndOfTheLineIsNotOffered()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(0, 0), new Vec2(10, 0)));
+        var engine = new SnapEngine { Modes = SnapModes.Perpendicular };
+
+        // The foot would be at x = 50, well off the end. Clamping it to the
+        // endpoint would offer a point endpoint snap already has, under a
+        // name that promises a right angle.
+        Assert.False(Snap(drawing, engine, new Vec2(50, 1), from: new Vec2(50, 50)).Found);
+    }
+
+    [Fact]
+    public void APerpendicularOntoACircleRunsThroughItsCentre()
+    {
+        var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
+        var engine = new SnapEngine { Modes = SnapModes.Perpendicular };
+
+        // From straight above: the near side of the rim, at (0, 10).
+        var result = Snap(drawing, engine, new Vec2(0.5, 10.5), from: new Vec2(0, 40));
+
+        Assert.Equal(SnapKind.Perpendicular, result.Kind);
+        Assert.Equal(0, result.Point.X, 9);
+        Assert.Equal(10, result.Point.Y, 9);
+    }
+
+    // ---- tangent --------------------------------------------------------------
+
+    [Fact]
+    public void ATangentTouchesTheCircleWithoutCrossingIt()
+    {
+        var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
+        var engine = new SnapEngine { Modes = SnapModes.Tangent };
+
+        var from = new Vec2(0, 20);
+        var result = Snap(drawing, engine, new Vec2(8.2, 5.5), from: from);
+
+        Assert.Equal(SnapKind.Tangent, result.Kind);
+
+        // The touch point is on the rim, and the radius there is square to
+        // the line coming in: that is what tangency is.
+        Assert.Equal(10, Vec2.Distance(result.Point, Vec2.Zero), 6);
+        Assert.Equal(0.0, Vec2.Dot((result.Point - Vec2.Zero).Normalized(),
+                                   (from - result.Point).Normalized()), 6);
+    }
+
+    [Fact]
+    public void ThereIsNoTangentFromInsideTheCircle()
+    {
+        var drawing = WithEntities(new SCircle(Vec2.Zero, 10));
+        var engine = new SnapEngine { Modes = SnapModes.Tangent };
+
+        Assert.False(Snap(drawing, engine, new Vec2(9.5, 1), from: new Vec2(2, 0)).Found);
+    }
+
+    [Fact]
+    public void AStraightLineOffersNoTangentPoint()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(0, 0), new Vec2(100, 0)));
+        var engine = new SnapEngine { Modes = SnapModes.Tangent };
+
+        // A line is its own tangent everywhere, so there is no one point.
+        Assert.False(Snap(drawing, engine, new Vec2(30, 1), from: new Vec2(30, 50)).Found);
+    }
+
+    // ---- tracking -------------------------------------------------------------
+
+    [Fact]
+    public void ATrackedPointOffersALineLevelWithIt()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking };
+
+        engine.Acquire(new Vec2(10, 40));
+
+        // Away to the right, and nearly level.
+        var result = Snap(drawing, engine, new Vec2(90, 40.8));
+
+        Assert.Equal(SnapKind.Tracking, result.Kind);
+        Assert.Equal(new Vec2(90, 40), result.Point);
+        Assert.Equal(new Vec2(10, 40), Assert.Single(result.Guides));
+    }
+
+    [Fact]
+    public void ATrackedPointAlsoOffersALineAboveIt()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking };
+
+        engine.Acquire(new Vec2(10, 40));
+
+        var result = Snap(drawing, engine, new Vec2(10.8, 90));
+
+        Assert.Equal(new Vec2(10, 90), result.Point);
+    }
+
+    [Fact]
+    public void TwoTrackedPointsGiveTheirCrossing()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking };
+
+        engine.Acquire(new Vec2(10, 40));    // supplies the height
+        engine.Acquire(new Vec2(70, 5));     // supplies the distance across
+
+        var result = Snap(drawing, engine, new Vec2(70.6, 40.6));
+
+        // Both coordinates pinned, which is what someone reaching for the
+        // corner of two existing features is after.
+        Assert.Equal(new Vec2(70, 40), result.Point);
+        Assert.Equal(2, result.Guides.Count);
+    }
+
+    [Fact]
+    public void OnlyTheLastTwoPointsStayAcquired()
+    {
+        var engine = new SnapEngine();
+
+        engine.Acquire(new Vec2(1, 1));
+        engine.Acquire(new Vec2(2, 2));
+        engine.Acquire(new Vec2(3, 3));
+
+        // A longer memory turns the screen into a cat's cradle.
+        Assert.Equal(SnapEngine.MaxTracked, engine.Tracked.Count);
+        Assert.DoesNotContain(new Vec2(1, 1), engine.Tracked);
+        Assert.Contains(new Vec2(3, 3), engine.Tracked);
+    }
+
+    [Fact]
+    public void AcquiringTheSamePointAgainDoesNotPushOutTheOther()
+    {
+        var engine = new SnapEngine();
+
+        engine.Acquire(new Vec2(1, 1));
+        engine.Acquire(new Vec2(2, 2));
+        engine.Acquire(new Vec2(2, 2));
+
+        Assert.Equal(2, engine.Tracked.Count);
+        Assert.Contains(new Vec2(1, 1), engine.Tracked);
+    }
+
+    [Fact]
+    public void NothingIsTrackedOnceTheAcquiredPointsAreCleared()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking };
+
+        engine.Acquire(new Vec2(10, 40));
+        engine.ClearTracking();
+
+        Assert.False(Snap(drawing, engine, new Vec2(90, 40.2)).Found);
+    }
+
+    [Fact]
+    public void AnObjectSnapStillBeatsTracking()
+    {
+        var drawing = WithEntities(new SLine(new Vec2(90, 41), new Vec2(120, 41)));
+        var engine = new SnapEngine { Modes = SnapModes.Endpoint | SnapModes.Tracking };
+
+        engine.Acquire(new Vec2(10, 40));
+
+        // Level with the tracked point, and also right by a real endpoint.
+        // Pointing at something that exists wins over lining up with one.
+        var result = Snap(drawing, engine, new Vec2(90.3, 40.6));
+
+        Assert.Equal(SnapKind.Endpoint, result.Kind);
+        Assert.Equal(new Vec2(90, 41), result.Point);
+    }
+
+    [Fact]
+    public void TrackingBeatsOrtho()
+    {
+        var drawing = WithEntities();
+        var engine = new SnapEngine { Modes = SnapModes.Tracking, Ortho = true };
+
+        engine.Acquire(new Vec2(10, 40));
+
+        // Ortho would flatten this onto the origin's row; tracking puts it
+        // level with a point that actually exists, which is more specific.
+        var result = Snap(drawing, engine, new Vec2(90, 40.5), from: new Vec2(0, 0));
+
+        Assert.Equal(SnapKind.Tracking, result.Kind);
+        Assert.Equal(new Vec2(90, 40), result.Point);
+    }
+
     // ---- ortho ------------------------------------------------------------
 
     [Theory]

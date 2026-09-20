@@ -54,12 +54,26 @@ public sealed class CadCanvas : FrameworkElement
     private const double SnapRadiusPixels = 12.0;
 
     private static readonly Pen SnapPen = MakeSnapPen();
+    private static readonly Pen GuidePen = MakeGuidePen();
     private static readonly Pen GridPen = MakeGridPen(60);
     private static readonly Pen GridAxisPen = MakeGridPen(105);
 
     private static Pen MakeSnapPen()
     {
         var pen = new Pen(new SolidColorBrush(Color.FromRgb(120, 230, 140)), 1.6);
+        pen.Freeze();
+        return pen;
+    }
+
+    private static Pen MakeGuidePen()
+    {
+        // Dashed and faint: a guide explains the answer without competing
+        // with the drawing it is laid over.
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(150, 120, 230, 140)), 1.0)
+        {
+            DashStyle = new DashStyle([5, 4], 0),
+        };
+
         pen.Freeze();
         return pen;
     }
@@ -191,6 +205,10 @@ public sealed class CadCanvas : FrameworkElement
 
         _snap = default;
 
+        // A new tool starts with a clean slate: points acquired while drawing
+        // the last thing are rarely what the next one wants to line up with.
+        Snapping.ClearTracking();
+
         // Whatever the tool was built with, the canvas's figure wins: there
         // is one setting and it is here.
         ApplyCornerRadius();
@@ -231,7 +249,28 @@ public sealed class CadCanvas : FrameworkElement
         _snap = Snapping.Resolve(_drawing.ActiveLayout, _drawing.Layers,
             world, SnapTolerance, from, Camera.Scale);
 
+        AcquireForTracking();
         return _snap.Point;
+    }
+
+    /// <summary>
+    /// Remembers a point the cursor is sitting on, so that a later point can
+    /// be lined up with it.
+    /// </summary>
+    /// <remarks>
+    /// Only the points that belong to an object: a grid crossing is already
+    /// on a grid of alignments, and tracking from one would offer a line the
+    /// grid itself draws. Tracking from a tracked point would compound too.
+    /// </remarks>
+    private void AcquireForTracking()
+    {
+        if (!Snapping.Modes.HasFlag(SnapModes.Tracking)) return;
+
+        if (_snap.Kind is SnapKind.Endpoint or SnapKind.Midpoint
+                       or SnapKind.Center or SnapKind.Quadrant)
+        {
+            Snapping.Acquire(_snap.Point);
+        }
     }
 
     private bool ZoomWindowArmed => Mode == CanvasMode.ZoomWindow;
@@ -318,7 +357,37 @@ public sealed class CadCanvas : FrameworkElement
 
         if (_tool is not null) DrawToolPreview(sink);
         if (_isBanding) DrawSelectionBand(dc);
-        if (_snap.Found && Mode == CanvasMode.Draw) DrawSnapMarker(dc);
+        if (_snap.Found && Mode == CanvasMode.Draw)
+        {
+            DrawTrackingGuides(dc);
+            DrawSnapMarker(dc);
+        }
+    }
+
+    /// <summary>
+    /// The dashed lines back to the points an answer was lined up with.
+    /// </summary>
+    /// <remarks>
+    /// Without them a point placed level with a corner on the far side of
+    /// the sheet is indistinguishable from one placed by hand nearby, and
+    /// the user has no way to tell which they got.
+    /// </remarks>
+    private void DrawTrackingGuides(DrawingContext dc)
+    {
+        if (_snap.Guides.Count == 0) return;
+
+        Vec2 to = Camera.WorldToScreen(_snap.Point);
+
+        foreach (var guide in _snap.Guides)
+        {
+            Vec2 from = Camera.WorldToScreen(guide);
+            dc.DrawLine(GuidePen, new Point(from.X, from.Y), new Point(to.X, to.Y));
+
+            // A small tick on the acquired point itself, so it is clear what
+            // the line is coming from rather than just where it ends.
+            dc.DrawLine(GuidePen, new Point(from.X - 4, from.Y), new Point(from.X + 4, from.Y));
+            dc.DrawLine(GuidePen, new Point(from.X, from.Y - 4), new Point(from.X, from.Y + 4));
+        }
     }
 
     /// <summary>
@@ -379,8 +448,23 @@ public sealed class CadCanvas : FrameworkElement
                 return;
 
             case SnapKind.Grid:
+            case SnapKind.Tracking:
                 dc.DrawLine(SnapPen, new Point(at.X - r, at.Y), new Point(at.X + r, at.Y));
                 dc.DrawLine(SnapPen, new Point(at.X, at.Y - r), new Point(at.X, at.Y + r));
+                return;
+
+            // A right angle, the way it is marked on a drawing.
+            case SnapKind.Perpendicular:
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y - r), new Point(at.X - r, at.Y + r));
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y + r), new Point(at.X + r, at.Y + r));
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y), new Point(at.X, at.Y));
+                dc.DrawLine(SnapPen, new Point(at.X, at.Y), new Point(at.X, at.Y + r));
+                return;
+
+            // A circle with the line it touches lying across the top.
+            case SnapKind.Tangent:
+                dc.DrawEllipse(null, SnapPen, new Point(at.X, at.Y + 1), r, r - 1);
+                dc.DrawLine(SnapPen, new Point(at.X - r, at.Y - r), new Point(at.X + r, at.Y - r));
                 return;
         }
     }
@@ -658,6 +742,8 @@ public sealed class CadCanvas : FrameworkElement
         if (_tool is { InProgress: true })
         {
             _tool.Cancel();
+            Snapping.ClearTracking();
+
             InvalidateVisual();
             ModeChanged?.Invoke(this, EventArgs.Empty);
             return;
