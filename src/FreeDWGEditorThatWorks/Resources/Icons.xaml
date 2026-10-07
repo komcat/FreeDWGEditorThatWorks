@@ -131,6 +131,8 @@
 
     <Geometry x:Key="Icon.LayerEdit">M3.5,8 L11,4 L18.5,8 L11,12 Z M3.5,12.5 L11,16.5 L14,15 M15,21 L15.5,18.5 L20,14 L21.5,15.5 L17,20 Z</Geometry>
 
+    <Geometry x:Key="Icon.LayerGroup">M3,6.5 H9.5 L11.5,8.5 H21 V19 H3 Z M3,11 H21</Geometry>
+
     <Geometry x:Key="Icon.Erase">M4,14 L14,4 L20,10 L10,20 Z M9.5,19.5 H20.5 M9,9 L15,15</Geometry>
 
     <Geometry x:Key="Icon.Move">M12,3 V21 M3,12 H21 M9,6 L12,3 L15,6 M9,18 L12,21 L15,18 M6,9 L3,12 L6,15 M18,9 L21,12 L18,15</Geometry>

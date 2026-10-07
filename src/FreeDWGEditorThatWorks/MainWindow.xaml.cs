@@ -13,6 +13,7 @@ using FreeDwg.Core.Styling;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Tools;
+using FreeDwg.Core.Workspace;
 using FreeDWGEditorThatWorks.Controls;
 using FreeDwg.Interop.Acad;
 using FreeDWGEditorThatWorks.ViewModels;
@@ -30,6 +31,23 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<LayerItem> _layers = new();
     private ICollectionView? _layerView;
+
+    /// <summary>
+    /// How the user has foldered the layers. Not part of the drawing -- DWG
+    /// has no such thing -- so it lives in a file beside it rather than on
+    /// the command stack. See <see cref="LayerGroups.SidecarPath"/>.
+    /// </summary>
+    private LayerGroups _layerGroups = new();
+
+    /// <summary>
+    /// Why the groups file beside this drawing could not be read, if it
+    /// could not. While this is set nothing is written back: overwriting a
+    /// file we failed to understand would lose whatever was in it.
+    /// </summary>
+    private string? _layerGroupsProblem;
+
+    /// <summary>What was last read or written, so an edit that changes nothing in it writes nothing.</summary>
+    private string? _layerGroupsSaved;
     private readonly ObservableCollection<PropertyRow> _properties = new();
 
     /// <summary>
@@ -118,6 +136,10 @@ public partial class MainWindow : Window
         Canvas.DrawingEdited += (_, _) =>
         {
             if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
+
+            // A renamed layer is saved under its new name, or it would fall
+            // out of its group the next time the file is opened.
+            SaveLayerGroups();
             UpdateHistoryButtons();
             UpdateTitle();
             UpdateStatus();
@@ -149,6 +171,9 @@ public partial class MainWindow : Window
 
         _diagnostics = null;
         _documentName = "Untitled";
+        _layerGroups = new LayerGroups();
+        _layerGroupsProblem = null;
+        _layerGroupsSaved = null;
         Canvas.Drawing = drawing;
 
         // A blank sheet has no extents to fit, so pick a working scale rather
@@ -438,6 +463,10 @@ public partial class MainWindow : Window
 
             _diagnostics = diagnostics;
             _documentName = Path.GetFileName(path);
+
+            // Before the canvas has it: a group saved hidden switches its
+            // layers off, and the first frame should already show that.
+            LoadLayerGroups(drawing);
             Canvas.Drawing = drawing;
 
             PopulateLayouts(drawing);
@@ -448,6 +477,9 @@ public partial class MainWindow : Window
             UpdateTitle();
             UpdateStatus();
             UpdateEmptyHint();
+
+            if (_layerGroupsProblem is { } problem)
+                StatusText.Text = problem;
         }
         catch (Exception ex)
         {
@@ -497,9 +529,43 @@ public partial class MainWindow : Window
             if ((uint)entity.LayerIndex < (uint)counts.Length)
                 counts[entity.LayerIndex]++;
 
-        _layers.Clear();
+        // Each row under its group's header, groups in the user's order and
+        // the ungrouped last. The view groups in order of first appearance,
+        // so the rows go in already sorted that way.
+        var headers = new Dictionary<LayerGroup, LayerGroupItem>();
+        var ungrouped = new LayerGroupItem(null, int.MaxValue, OnLayerGroupChanged);
+        var rows = new List<LayerItem>();
+
         for (int i = 0; i < drawing.Layers.Count; i++)
-            _layers.Add(new LayerItem(drawing.Layers[i], i, counts[i], OnLayerVisibilityChanged));
+        {
+            var row = new LayerItem(drawing.Layers[i], i, counts[i], OnLayerVisibilityChanged);
+
+            if (_layerGroups.GroupOf(drawing.Layers[i]) is not { } group)
+                row.Group = ungrouped;
+            else if (!headers.TryGetValue(group, out var header))
+                row.Group = headers[group] =
+                    new LayerGroupItem(group, _layerGroups.Groups.IndexOf(group), OnLayerGroupChanged);
+            else
+                row.Group = header;
+
+            row.Group.Members.Add(row);
+            rows.Add(row);
+        }
+
+        _layers.Clear();
+        foreach (var row in rows.OrderBy(row => row.Group!.Order).ThenBy(row => row.Index))
+            _layers.Add(row);
+
+        // With no groups there is nothing to fold, and the panel is the flat
+        // list it was -- not one folder called "Other layers".
+        if (_layerView is not null)
+        {
+            bool grouped = headers.Count > 0;
+            if (grouped && _layerView.GroupDescriptions.Count == 0)
+                _layerView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(LayerItem.Group)));
+            else if (!grouped && _layerView.GroupDescriptions.Count > 0)
+                _layerView.GroupDescriptions.Clear();
+        }
 
         // Selecting a row is how the current layer is chosen, so the list has
         // to start on whatever the drawing says that is -- by index, since a
@@ -585,6 +651,7 @@ public partial class MainWindow : Window
         LayerEditButton.IsEnabled = hasDrawing && index >= 0;
         LayerDeleteButton.IsEnabled = hasDrawing && index >= 0
                                    && Canvas.WhyLayerCannotBeDeleted(index) is null;
+        LayerGroupButton.IsEnabled = hasDrawing && LayerList.SelectedItems.Count > 0;
     }
 
     private void OnNewLayer(object sender, RoutedEventArgs e)
@@ -666,7 +733,198 @@ public partial class MainWindow : Window
     {
         Canvas.Redraw();
         UpdateStatus();
+
+        // A layer switched on its own row can turn its group mixed, or all
+        // one way, and that is what the groups file keeps.
+        SaveLayerGroups();
     }
+
+    // ---- layer groups -------------------------------------------------------
+
+    /// <summary>Every row picked, in the order they were picked.</summary>
+    private List<LayerItem> SelectedLayerRows => LayerList.SelectedItems.Cast<LayerItem>().ToList();
+
+    /// <summary>A group header was switched, folded or unfolded.</summary>
+    private void OnLayerGroupChanged()
+    {
+        Canvas.Redraw();
+        UpdateStatus();
+        SaveLayerGroups();
+    }
+
+    private void LoadLayerGroups(SceneDrawing drawing)
+    {
+        _layerGroupsProblem = null;
+
+        try
+        {
+            _layerGroups = LayerGroups.Load(drawing);
+            _layerGroupsSaved = _layerGroups.ToJson(drawing);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _layerGroups = new LayerGroups();
+            _layerGroupsSaved = null;
+            _layerGroupsProblem =
+                $"Layer groups in {Path.GetFileName(LayerGroups.SidecarPath(drawing.SourcePath!))} could not be read "
+                + $"and will not be overwritten: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Writes the groups beside the drawing. A new drawing has nowhere to
+    /// put them until it is saved, so they last as long as the window.
+    /// </summary>
+    private void SaveLayerGroups()
+    {
+        if (_layerGroupsProblem is not null) return;
+        if (Canvas.Drawing is not { SourcePath: not null } drawing) return;
+
+        string json = _layerGroups.ToJson(drawing);
+        if (json == _layerGroupsSaved) return;
+
+        try
+        {
+            if (_layerGroups.Save(drawing)) _layerGroupsSaved = json;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusText.Text = $"Could not save the layer groups: {ex.Message}";
+        }
+    }
+
+    /// <summary>After the groups change shape: rebuild the panel and keep them.</summary>
+    private void LayerGroupsReshaped()
+    {
+        if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
+        SaveLayerGroups();
+    }
+
+    private void OnNewLayerGroup(object sender, RoutedEventArgs e) => GroupSelectedLayers();
+
+    private void GroupSelectedLayers()
+    {
+        var rows = SelectedLayerRows;
+        if (rows.Count == 0) return;
+
+        string prompt = rows.Count == 1
+            ? $"A new group for {rows[0].Name}:"
+            : $"A new group for these {rows.Count} layers:";
+
+        var dialog = new NameWindow("New layer group", prompt, _layerGroups.UniqueName("Group")) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        _layerGroups.Create(dialog.Result, rows.Select(row => row.Layer));
+        LayerGroupsReshaped();
+    }
+
+    /// <summary>
+    /// The row menu names the groups, so it is made as it opens rather than
+    /// written out in the markup.
+    /// </summary>
+    private void OnLayerMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        // A group header has a menu of its own; leave it be.
+        if (!IsOnLayerRow(e.OriginalSource as DependencyObject)) return;
+
+        var rows = SelectedLayerRows;
+        var menu = LayerList.ContextMenu;
+        menu.Items.Clear();
+
+        if (rows.Count == 0 || Canvas.Drawing is null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var layers = rows.Select(row => row.Layer).ToList();
+        string what = rows.Count == 1 ? rows[0].Name : $"{rows.Count} layers";
+
+        menu.Items.Add(Item($"New group from {what}...", GroupSelectedLayers));
+
+        var targets = _layerGroups.Groups
+            .Where(group => !layers.All(group.Layers.Contains))
+            .ToList();
+
+        if (targets.Count > 0)
+        {
+            var move = new MenuItem { Header = "Move to group" };
+            foreach (var target in targets)
+            {
+                move.Items.Add(Item(target.Name, () =>
+                {
+                    _layerGroups.Assign(layers, target);
+                    LayerGroupsReshaped();
+                }));
+            }
+            menu.Items.Add(move);
+        }
+
+        if (layers.Any(layer => _layerGroups.GroupOf(layer) is not null))
+        {
+            menu.Items.Add(Item("Remove from group", () =>
+            {
+                _layerGroups.Assign(layers, null);
+                LayerGroupsReshaped();
+            }));
+        }
+
+        static MenuItem Item(string header, Action click)
+        {
+            // A TextBlock, so an underscore in a layer name is not an access key.
+            var item = new MenuItem { Header = new TextBlock { Text = header } };
+            item.Click += (_, _) => click();
+            return item;
+        }
+    }
+
+    /// <summary>Whether a right-click landed on a layer row, as opposed to a group header.</summary>
+    private bool IsOnLayerRow(DependencyObject? element)
+    {
+        while (element is not null && !ReferenceEquals(element, LayerList))
+        {
+            if (element is ListBoxItem) return true;
+            if (element is GroupItem) return false;
+
+            element = element is System.Windows.Media.Visual
+                ? System.Windows.Media.VisualTreeHelper.GetParent(element)
+                : LogicalTreeHelper.GetParent(element);
+        }
+
+        return false;
+    }
+
+    /// <summary>The "Other layers" header is not a group, and has nothing to rename or ungroup.</summary>
+    private void OnLayerGroupMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (HeaderOf(sender) is not { IsGroup: true }) e.Handled = true;
+    }
+
+    private void OnRenameLayerGroup(object sender, RoutedEventArgs e)
+    {
+        if (HeaderOf(sender)?.Group is not { } group) return;
+
+        var dialog = new NameWindow("Rename layer group", "Name:", group.Name) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        group.Name = dialog.Result;
+        LayerGroupsReshaped();
+    }
+
+    /// <summary>The folder goes; its layers stay exactly as they were, ungrouped.</summary>
+    private void OnUngroupLayers(object sender, RoutedEventArgs e)
+    {
+        if (HeaderOf(sender)?.Group is not { } group) return;
+
+        _layerGroups.Ungroup(group);
+        LayerGroupsReshaped();
+    }
+
+    /// <summary>The header a menu or its owner belongs to: the view's group, whose Name is it.</summary>
+    private static LayerGroupItem? HeaderOf(object sender) =>
+        (sender as FrameworkElement)?.DataContext is CollectionViewGroup { Name: LayerGroupItem header }
+            ? header
+            : null;
 
     private void OnZoomExtentsClick(object sender, RoutedEventArgs e) => Canvas.ZoomExtents();
 

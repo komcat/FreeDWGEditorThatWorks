@@ -48,6 +48,12 @@ public sealed class LayerItem : INotifyPropertyChanged
     public bool Matches(string filter) =>
         filter.Length == 0 || Name.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>The scene layer this row shows.</summary>
+    public SceneLayer Layer => _layer;
+
+    /// <summary>The group header this row sits under; what the panel groups by.</summary>
+    public LayerGroupItem? Group { get; set; }
+
     public bool IsOn
     {
         get => _layer.IsOn;
@@ -57,7 +63,19 @@ public sealed class LayerItem : INotifyPropertyChanged
             _layer.IsOn = value;
             _invalidate();
             OnPropertyChanged();
+            Group?.Refresh();
         }
+    }
+
+    /// <summary>
+    /// Switches the layer without asking for a redraw, for the group header,
+    /// which switches all its members and then asks once.
+    /// </summary>
+    internal void SetOnQuietly(bool on)
+    {
+        if (_layer.IsOn == on) return;
+        _layer.IsOn = on;
+        OnPropertyChanged(nameof(IsOn));
     }
 
     public bool IsFrozen

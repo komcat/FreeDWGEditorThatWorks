@@ -436,6 +436,9 @@
                                     Tag="{StaticResource Icon.LayerEdit}" ToolTip="Layer properties  -  or double-click the row" />
                             <Button x:Name="LayerDeleteButton" Style="{StaticResource PanelButton}" Click="OnDeleteLayer"
                                     Tag="{StaticResource Icon.LayerDelete}" ToolTip="Delete layer  -  only one with nothing drawn on it" />
+                            <Button x:Name="LayerGroupButton" Style="{StaticResource PanelButton}" Click="OnNewLayerGroup"
+                                    Tag="{StaticResource Icon.LayerGroup}"
+                                    ToolTip="Group the selected layers  -  Ctrl or Shift-click to pick several; right-click for more" />
                             <TextBlock x:Name="LayerCountText" Opacity="0.6" Margin="6,0,2,0"
                                        VerticalAlignment="Center" />
                         </StackPanel>
@@ -461,11 +464,71 @@
                                 ToolTip="Clear the filter  (Escape)" />
                     </Grid>
 
+                    <!--
+                        Several rows can be picked at once so they can be put
+                        in a group together; the first picked is still the
+                        current layer. Groups are a grouping of the view, not
+                        of the list: the rows are the same flat set of layers
+                        and each still carries its own index. The menu is
+                        built when it opens, because it names the groups.
+                    -->
                     <ListBox x:Name="LayerList" BorderThickness="1"
+                             SelectionMode="Extended"
                              SelectionChanged="OnLayerSelected"
                              MouseDoubleClick="OnLayerDoubleClick"
+                             ContextMenuOpening="OnLayerMenuOpening"
                              HorizontalContentAlignment="Stretch"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ContextMenu>
+                            <ContextMenu />
+                        </ListBox.ContextMenu>
+
+                        <!--
+                            A folder per group: one checkbox for every layer
+                            in it, a count, and a fold. The binding source is
+                            the view's group, whose Name is the LayerGroupItem
+                            the rows were grouped by.
+                        -->
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="GroupItem">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="GroupItem">
+                                                    <Expander IsExpanded="{Binding Name.IsExpanded, Mode=TwoWay}"
+                                                              Margin="0,1,0,1">
+                                                        <Expander.Header>
+                                                            <StackPanel Orientation="Horizontal" Background="Transparent"
+                                                                        ToolTip="{Binding Name.Name}"
+                                                                        ContextMenuOpening="OnLayerGroupMenuOpening">
+                                                                <StackPanel.ContextMenu>
+                                                                    <ContextMenu>
+                                                                        <MenuItem Header="Rename group..." Click="OnRenameLayerGroup" />
+                                                                        <MenuItem Header="Ungroup" Click="OnUngroupLayers" />
+                                                                    </ContextMenu>
+                                                                </StackPanel.ContextMenu>
+
+                                                                <CheckBox IsChecked="{Binding Name.IsOn, Mode=TwoWay}"
+                                                                          VerticalAlignment="Center" Margin="0,0,6,0"
+                                                                          ToolTip="Show or hide every layer in the group"
+                                                                          Visibility="{Binding Name.IsGroup, Converter={StaticResource ShowIfTrue}}" />
+                                                                <TextBlock Text="{Binding Name.Name}" FontWeight="SemiBold"
+                                                                           VerticalAlignment="Center" />
+                                                                <TextBlock Text="{Binding Name.CountText}" Opacity="0.5"
+                                                                           Margin="6,0,0,0" VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </Expander.Header>
+                                                        <ItemsPresenter Margin="10,0,0,0" />
+                                                    </Expander>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid ToolTip="{Binding Tooltip}" Margin="0,1">

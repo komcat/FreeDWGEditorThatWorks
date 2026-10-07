@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 609 tests, ~1s
+dotnet test                 # 626 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -88,6 +88,15 @@ with no WPF and no parser present. Do not add either reference to Core.
   using the position would rename, recolour or delete a layer nobody
   pointed at, silently and after the fact. Nothing in the panel asks the
   ListBox where a row is; `LayerItem.Index` is the only answer.
+- **Layer groups are a view customisation, not drawing data.** DWG has no
+  layer folders, so `LayerGroups` (Core, `Workspace/`) never touches the
+  command stack; it is kept in `plan.dwg.freedwg.json` beside the drawing,
+  written as it changes and only once the user has made a group. Members are
+  `Layer` objects in memory -- surviving rename, delete and their undo -- and
+  names only in the file, matched case-blind. A group saved all-off comes
+  back off; a mixed one is left as the drawing has it. A file that will not
+  read is reported and never overwritten. In the panel the rows stay one flat
+  list grouped by the *view*, so `LayerItem.Index` is still the only answer.
 - **`CursorEntry` is the single answer to "what does the box beside the
   cursor edit".** A length while a point is being placed, otherwise the size
   the corner tool in hand works to. One enum, one destination for a typed
