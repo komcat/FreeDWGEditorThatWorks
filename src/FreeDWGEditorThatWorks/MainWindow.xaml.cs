@@ -445,6 +445,29 @@ public partial class MainWindow : Window
         Canvas.Focus();
     }
 
+    /// <summary>
+    /// Says what Undo and Redo would take back, and greys out what has
+    /// nothing to act on, at the moment the menu is looked at.
+    /// </summary>
+    private void OnEditMenuOpened(object sender, RoutedEventArgs e)
+    {
+        UndoMenuItem.IsEnabled = Canvas.Commands?.CanUndo == true;
+        RedoMenuItem.IsEnabled = Canvas.Commands?.CanRedo == true;
+        UndoMenuItem.Header = Canvas.Commands?.UndoName is { } undo ? $"_Undo {undo}" : "_Undo";
+        RedoMenuItem.Header = Canvas.Commands?.RedoName is { } redo ? $"_Redo {redo}" : "_Redo";
+        EraseMenuItem.IsEnabled = !Canvas.Selection.IsEmpty;
+    }
+
+    private void OnZoomWindowMenu(object sender, RoutedEventArgs e)
+    {
+        // The toolbar toggle follows from ModeChanged, as it does for every mode.
+        Canvas.UseZoomWindow();
+        Canvas.Focus();
+    }
+
+    /// <summary>Closing goes through the window, so unsaved work is asked about.</summary>
+    private void OnExitClick(object sender, RoutedEventArgs e) => Close();
+
     private void UpdateHistoryButtons()
     {
         UndoButton.IsEnabled = Canvas.Commands?.CanUndo == true;
@@ -1084,8 +1107,37 @@ public partial class MainWindow : Window
             RebuildProperties();
             UpdateStatus();
             UpdateLengthOverlay();
-        })
+        }, EditDimensionStyle)
         { Owner = this }.ShowDialog();
+    }
+
+    private void OnDimensionStyleClick(object sender, RoutedEventArgs e)
+    {
+        EditDimensionStyle(this);
+        Canvas.Focus();
+    }
+
+    /// <summary>
+    /// Opens the dimension style dialog over <paramref name="owner"/> and
+    /// applies what comes back as one undoable step.
+    /// </summary>
+    private void EditDimensionStyle(Window owner)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        var dialog = new DimensionStyleWindow(DimensionSettings.For(drawing), drawing.Units,
+            ChangeDimensionSettings.CountRestylable(drawing))
+        { Owner = owner };
+
+        if (dialog.ShowDialog() != true || dialog.Chosen is not { } chosen) return;
+        if (chosen == drawing.Dimensions && !dialog.RestyleExisting) return;
+
+        Canvas.SetDimensionSettings(chosen, dialog.RestyleExisting);
+
+        var style = chosen.StyleIn(drawing.Units);
+        StatusText.Text = $"Dimensions: {Units.Describe(style.TextHeight, drawing.Units, 4)} text, "
+            + $"{Units.Describe(style.ArrowSize, drawing.Units, 4)} arrows"
+            + (dialog.RestyleExisting ? ", applied to the dimensions already drawn." : ", for new dimensions.");
     }
 
     // ---- the overlay beside the cursor -------------------------------------

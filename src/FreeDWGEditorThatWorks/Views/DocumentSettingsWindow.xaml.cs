@@ -18,14 +18,20 @@ public partial class DocumentSettingsWindow : Window
 {
     private readonly SceneDrawing _drawing;
     private readonly Action _changed;
+    private readonly Action<Window>? _editDimensions;
     private bool _ready;
 
-    public DocumentSettingsWindow(SceneDrawing drawing, Action changed)
+    /// <param name="editDimensions">
+    /// Opens the dimension style dialog over this one. The shell's to do,
+    /// since it is the shell that runs the command it ends in.
+    /// </param>
+    public DocumentSettingsWindow(SceneDrawing drawing, Action changed, Action<Window>? editDimensions = null)
     {
         InitializeComponent();
 
         _drawing = drawing;
         _changed = changed;
+        _editDimensions = editDimensions;
 
         UnitsBox.ItemsSource = Units.All
             .Select(units => new { Name = Units.Name(units), Value = units })
@@ -35,6 +41,12 @@ public partial class DocumentSettingsWindow : Window
         PrecisionSlider.Value = drawing.LinearPrecision;
 
         _ready = true;
+        ShowPrecision();
+    }
+
+    private void OnDimensionStyle(object sender, RoutedEventArgs e)
+    {
+        _editDimensions?.Invoke(this);
         ShowPrecision();
     }
 
@@ -57,8 +69,18 @@ public partial class DocumentSettingsWindow : Window
     }
 
     /// <summary>Shows the setting as the number it will actually produce.</summary>
-    private void ShowPrecision() =>
+    private void ShowPrecision()
+    {
         PrecisionText.Text = Units.Describe(1234.56789, _drawing.Units, _drawing.LinearPrecision);
+
+        // The dimension sizes follow the units until they are set, so this
+        // line changes with the units box as well as with the dialog.
+        var style = DimensionStyle.For(_drawing);
+        var scale = DimensionSettings.For(_drawing).Scale;
+        DimensionText.Text = $"{Units.Describe(style.TextHeight, _drawing.Units, 4)} text, "
+            + $"{Units.Describe(style.ArrowSize, _drawing.Units, 4)} arrows"
+            + (scale == 1 ? "" : $", at a scale of {scale:0.####}");
+    }
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();
 }

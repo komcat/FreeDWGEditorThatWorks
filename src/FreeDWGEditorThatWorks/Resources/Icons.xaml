@@ -116,6 +116,10 @@
 
     <Geometry x:Key="Icon.DimensionContinue">M4,6 V18 M12,6 V18 M20,6 V18 M4,12 H20 M2.5,13.5 L5.5,10.5 M10.5,13.5 L13.5,10.5 M18.5,13.5 L21.5,10.5</Geometry>
 
+    <!-- A linear dimension, smaller and up in the corner, with the settings
+         gear under it: the marks of a dimension, and the knob that sizes them. -->
+    <Geometry x:Key="Icon.DimensionStyle">M3,3 V11 M14,3 V11 M3,7 H14 M5.5,5 L3,7 L5.5,9 M11.5,5 L14,7 L11.5,9 M15.5,17 A2.5,2.5 0 1 1 20.5,17 A2.5,2.5 0 1 1 15.5,17 Z M18,11.5 V13.5 M18,20.5 V22.5 M12.5,17 H14.5 M21.5,17 H23.5 M14.1,13.1 L15.5,14.5 M20.5,19.5 L21.9,20.9 M21.9,13.1 L20.5,14.5 M15.5,19.5 L14.1,20.9</Geometry>
+
     <Geometry x:Key="Icon.Tangent">M3,19 H21 M6.5,12.5 A6.5,6.5 0 1 1 19.5,12.5 A6.5,6.5 0 1 1 6.5,12.5 Z M10.5,19 H15.5</Geometry>
 
     <!-- ==== modify ====================================================== -->

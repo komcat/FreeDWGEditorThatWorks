@@ -46,6 +46,36 @@ public static class DwgLoader
     public static Drawing Convert(CadDocument document, ImportDiagnostics diagnostics) =>
         new Converter(document, diagnostics).Run();
 
+    /// <summary>
+    /// The sizes a file draws its next dimension with: the header's DIM
+    /// variables, which are AutoCAD's current settings -- the dimension
+    /// style in force, with any overrides on top.
+    /// </summary>
+    /// <remarks>
+    /// Read so that a dimension drawn here matches the ones already in the
+    /// file, rather than arriving at ISO sizes in a drawing whose own are
+    /// forty times bigger. A DIMSCALE of zero means "worked out from the
+    /// viewport", which there is none of here, and reads as one; DIMGAP is
+    /// negative when the text is boxed, and its size is the same.
+    /// </remarks>
+    internal static DimensionSettings? DimensionSettingsOf(ACadSharp.Header.CadHeader header, DrawingUnits units)
+    {
+        var settings = new DimensionSettings(
+            new FreeDwg.Core.Scene.DimensionStyle(
+                header.DimensionTextHeight,
+                header.DimensionArrowSize,
+                header.DimensionExtensionLineOffset,
+                header.DimensionExtensionLineExtension,
+                Math.Abs(header.DimensionLineGap),
+                units,
+                header.DimensionDecimalPlaces),
+            header.DimensionScaleFactor > 0 ? header.DimensionScaleFactor : 1.0);
+
+        // A header with no usable sizes says nothing; ISO is a better guess
+        // than a dimension with invisible text.
+        return settings.IsValid ? settings : null;
+    }
+
     internal static bool IsDxf(string path) =>
         string.Equals(Path.GetExtension(path), ".dxf", StringComparison.OrdinalIgnoreCase);
 
@@ -116,6 +146,7 @@ public static class DwgLoader
         public Drawing Run()
         {
             ConvertUnits();
+            if (_document.Header is { } header) _drawing.Dimensions = DimensionSettingsOf(header, _drawing.Units);
 
             ConvertLinetypes();
             _styles = new StyleResolver(_linetypeByHandle, _document.Header?.LineTypeScale ?? 1.0);

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using FreeDwg.Core.Editing;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Scene;
 using FreeDwg.Core.Scene.Entities;
@@ -285,6 +286,9 @@ public static class PropertySource
             rows.Add(SharedNumber(canvas, selected, "Circle", "Radius", "Radius of every selected circle.",
                 entity => ((SCircle)entity).Radius,
                 (copy, value) => { if (value <= 0) return false; ((SCircle)copy).Radius = value; return true; }));
+            rows.Add(SharedNumber(canvas, selected, "Circle", "Diameter", "Diameter of every selected circle.",
+                entity => ((SCircle)entity).Radius * 2,
+                (copy, value) => { if (value <= 0) return false; ((SCircle)copy).Radius = value / 2; return true; }));
             return;
         }
 
@@ -301,7 +305,162 @@ public static class PropertySource
             rows.Add(SharedNumber(canvas, selected, "Text", "Height", "Cap height of every selected text.",
                 entity => ((SText)entity).Height,
                 (copy, value) => { if (value <= 0) return false; ((SText)copy).Height = value; return true; }));
+            return;
         }
+
+        if (selected.All(entity => entity is SDimension))
+        {
+            AddDimensionSizes(canvas, selected, rows);
+            return;
+        }
+
+        if (selected.All(entity => entity is SEllipse))
+        {
+            AddEllipseSize(canvas, selected, rows);
+            return;
+        }
+
+        if (selected.All(entity => entity is SPolyline polyline && RectangleShape.TryRead(polyline, out _)))
+        {
+            AddRectangleSize(canvas, selected, rows);
+            return;
+        }
+
+        if (selected.All(entity => entity is SPolyline polyline && RegularPolygon.TryRead(polyline, out _)))
+            AddPolygonSize(canvas, selected, rows);
+    }
+
+    /// <summary>
+    /// The full distances across an ellipse, which is how anyone sizes one;
+    /// the major axis and ratio are how the file stores it. Both keep the
+    /// centre and the angle.
+    /// </summary>
+    private static void AddEllipseSize(CadCanvas canvas, IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        rows.Add(SharedNumber(canvas, selected, "Ellipse", "Width",
+            "The full distance across along the axis that runs more nearly horizontal. The centre stays put.",
+            entity => EllipseShape.Width((SEllipse)entity),
+            (copy, value) => EllipseShape.Resize((SEllipse)copy, value, null)));
+
+        rows.Add(SharedNumber(canvas, selected, "Ellipse", "Height",
+            "The full distance across along the other axis. The centre stays put.",
+            entity => EllipseShape.Height((SEllipse)entity),
+            (copy, value) => EllipseShape.Resize((SEllipse)copy, null, value)));
+    }
+
+    /// <summary>
+    /// A regular polygon's sizes. Any of them scales the whole polygon about
+    /// its centre; they are three ways of saying the same size, and which is
+    /// on the drawing being worked from is the one worth typing.
+    /// </summary>
+    private static void AddPolygonSize(CadCanvas canvas, IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        const string category = "Polygon";
+
+        static RegularPolygon Shape(SceneEntity entity)
+        {
+            RegularPolygon.TryRead((SPolyline)entity, out var polygon);
+            return polygon;
+        }
+
+        static bool ResizeTo(SceneEntity copy, Func<RegularPolygon, double> radius) =>
+            RegularPolygon.Resize((SPolyline)copy, radius(Shape(copy)));
+
+        rows.Add(new PropertyRow(category, "Sides", "How many sides it has.",
+            Shared(selected, entity => Shape(entity).Sides.ToString(System.Globalization.CultureInfo.InvariantCulture), out _)));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Side length",
+            "The length of each side. The centre stays put.",
+            entity => Shape(entity).SideLength,
+            (copy, value) => value > 0 && ResizeTo(copy, polygon => polygon.RadiusForSide(value))));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Radius to corners",
+            "Centre to each corner -- AutoCAD's inscribed size, the circle the polygon fits inside.",
+            entity => Shape(entity).OuterRadius,
+            (copy, value) => value > 0 && ResizeTo(copy, _ => value)));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Radius to sides",
+            "Centre to the middle of each side -- AutoCAD's circumscribed size, the circle that fits inside it.",
+            entity => Shape(entity).InnerRadius,
+            (copy, value) => value > 0 && ResizeTo(copy, polygon => polygon.RadiusForInner(value))));
+    }
+
+    /// <summary>
+    /// Width and height for a polyline that is a rectangle -- which is what
+    /// the rectangle tool makes, there being no rectangle in DWG. The first
+    /// corner stays put and the sides opposite it move.
+    /// </summary>
+    private static void AddRectangleSize(CadCanvas canvas, IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        const string category = "Rectangle";
+
+        static RectangleShape Shape(SceneEntity entity)
+        {
+            RectangleShape.TryRead((SPolyline)entity, out var shape);
+            return shape;
+        }
+
+        rows.Add(SharedNumber(canvas, selected, category, "Width",
+            "The side that runs more nearly horizontal. The first corner stays where it is.",
+            entity => Shape(entity).Width,
+            (copy, value) => RectangleShape.Resize((SPolyline)copy, value, null)));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Height",
+            "The other side. The first corner stays where it is.",
+            entity => Shape(entity).Height,
+            (copy, value) => RectangleShape.Resize((SPolyline)copy, null, value)));
+    }
+
+    /// <summary>
+    /// The sizes of the selected dimensions, one or many: set here, they
+    /// change those dimensions only. The dimension style button sets what
+    /// new ones are drawn with.
+    /// </summary>
+    private static void AddDimensionSizes(CadCanvas canvas, IReadOnlyList<SceneEntity> selected, List<PropertyRow> rows)
+    {
+        const string category = "Dimension";
+
+        static DimensionStyle Of(SceneEntity entity) => ((SDimension)entity).DimensionStyle;
+
+        static bool Restyle(SceneEntity copy, Func<DimensionStyle, DimensionStyle> change)
+        {
+            var dimension = (SDimension)copy;
+            dimension.DimensionStyle = change(dimension.DimensionStyle);
+            return true;
+        }
+
+        rows.Add(SharedNumber(canvas, selected, category, "Text height",
+            "Height of the number, in drawing units.",
+            entity => Of(entity).TextHeight,
+            (copy, v) => v > 0 && Restyle(copy, style => style with { TextHeight = v })));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Arrow size",
+            "Length of each arrowhead, in drawing units. Arrows that no longer fit between the "
+            + "extension lines turn round and point in from outside.",
+            entity => Of(entity).ArrowSize,
+            (copy, v) => v > 0 && Restyle(copy, style => style with { ArrowSize = v })));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Extension line gap",
+            "How far short of the measured point each extension line stops, so it does not touch "
+            + "the geometry it is measuring (DIMEXO).",
+            entity => Of(entity).ExtensionOffset,
+            (copy, v) => v >= 0 && Restyle(copy, style => style with { ExtensionOffset = v })));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Extension line overrun",
+            "How far each extension line carries on past the dimension line (DIMEXE).",
+            entity => Of(entity).ExtensionBeyond,
+            (copy, v) => v >= 0 && Restyle(copy, style => style with { ExtensionBeyond = v })));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Text gap",
+            "Clearance between the number and the dimension line (DIMGAP).",
+            entity => Of(entity).TextGap,
+            (copy, v) => v >= 0 && Restyle(copy, style => style with { TextGap = v })));
+
+        rows.Add(SharedNumber(canvas, selected, category, "Decimal places",
+            "How many decimals the measurement is written to.",
+            entity => Of(entity).Decimals,
+            (copy, v) => v is >= 0 and <= 8 && v == Math.Floor(v)
+                      && Restyle(copy, style => style with { Decimals = (int)v })));
     }
 
     private static PropertyRow SharedNumber(CadCanvas canvas, IReadOnlyList<SceneEntity> selected,
@@ -373,7 +532,7 @@ public static class PropertySource
             pairs.Add((entity, copy));
         }
 
-        return canvas.ApplyEdits(pairs, $"{name} on {selected.Count} objects");
+        return canvas.ApplyEdits(pairs, selected.Count == 1 ? name : $"{name} on {selected.Count} objects");
     }
 
     private static bool MoveCopyToLayer(Drawing drawing, SceneEntity copy, string name)
@@ -427,7 +586,9 @@ public static class PropertySource
                 rows.Add(Number(canvas, "Circle", "Radius", "Radius in drawing units.", circle.Radius,
                     (copy, v) => { if (v <= 0) return false; ((SCircle)copy).Radius = v; return true; }));
 
-                rows.Add(Derived("Circle", "Diameter", "Twice the radius.", circle.Radius * 2));
+                rows.Add(Number(canvas, "Circle", "Diameter", "Twice the radius. Setting it keeps the centre.",
+                    circle.Radius * 2,
+                    (copy, v) => { if (v <= 0) return false; ((SCircle)copy).Radius = v / 2; return true; }));
                 return;
 
             case SArc arc:
@@ -452,8 +613,7 @@ public static class PropertySource
                 Point(canvas, rows, "Ellipse", "Centre", ellipse.Center,
                     (copy, p) => ((SEllipse)copy).Center = p);
 
-                rows.Add(Derived("Ellipse", "Major axis", "Half the long diameter.",
-                    ellipse.MajorAxis.Length));
+                AddEllipseSize(canvas, [ellipse], rows);
                 rows.Add(Number(canvas, "Ellipse", "Ratio",
                     "Minor axis as a fraction of the major one.", ellipse.Ratio,
                     (copy, v) => { if (v is <= 0 or > 1) return false; ((SEllipse)copy).Ratio = v; return true; }));
@@ -472,6 +632,9 @@ public static class PropertySource
 
                         return Edit(canvas, polyline, copy => { ((SPolyline)copy).Closed = value; return true; });
                     }));
+
+                if (RectangleShape.TryRead(polyline, out _)) AddRectangleSize(canvas, [polyline], rows);
+                else if (RegularPolygon.TryRead(polyline, out _)) AddPolygonSize(canvas, [polyline], rows);
                 return;
 
             case SText text:
@@ -494,6 +657,12 @@ public static class PropertySource
 
             case SInsert insert:
                 rows.Add(Derived("Block", "Name", "The block definition this places.", insert.Block.Name));
+                return;
+
+            case SDimension dimension:
+                rows.Add(Derived("Dimension", "Measurement", "What the dimension measures, as written on it.",
+                    dimension.MeasurementText));
+                AddDimensionSizes(canvas, [dimension], rows);
                 return;
         }
     }

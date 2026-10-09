@@ -9,6 +9,41 @@
         Title="FreeDWG Editor" Height="700" Width="1100">
     <DockPanel>
         <!--
+            Words, above the icons: the commands a toolbar has no room to
+            explain, and the drawing-wide settings, which are not tools and
+            were hard to find as a gear and a palette button. Every item runs
+            the same handler as its button, so the two cannot drift apart;
+            the shortcuts shown are the window's own key bindings.
+        -->
+        <Menu DockPanel.Dock="Top" Background="#FFF7F9FC">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" InputGestureText="Ctrl+N" Click="OnNewClick" />
+                <MenuItem Header="_Open..." InputGestureText="Ctrl+O" Click="OnOpenClick" />
+                <Separator />
+                <MenuItem Header="_Save" InputGestureText="Ctrl+S" Click="OnSaveClick" />
+                <MenuItem Header="Save _As..." InputGestureText="Ctrl+Shift+S" Click="OnSaveAsClick" />
+                <Separator />
+                <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="OnExitClick" />
+            </MenuItem>
+            <MenuItem Header="_Edit" SubmenuOpened="OnEditMenuOpened">
+                <MenuItem x:Name="UndoMenuItem" Header="_Undo" InputGestureText="Ctrl+Z" Click="OnUndoClick" />
+                <MenuItem x:Name="RedoMenuItem" Header="_Redo" InputGestureText="Ctrl+Y" Click="OnRedoClick" />
+                <Separator />
+                <MenuItem x:Name="EraseMenuItem" Header="_Erase" InputGestureText="Del" Click="OnEraseClick" />
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="Zoom _extents" Click="OnZoomExtentsClick" />
+                <MenuItem Header="Zoom _window" Click="OnZoomWindowMenu" />
+            </MenuItem>
+            <MenuItem Header="F_ormat">
+                <MenuItem Header="_Dimension style..." Click="OnDimensionStyleClick"
+                          ToolTip="Text height, arrow size, gaps, decimals and the overall scale of dimensions" />
+                <MenuItem Header="_Units and precision..." Click="OnSettingsClick"
+                          ToolTip="What the drawing is measured in, and how many decimals to show" />
+            </MenuItem>
+        </Menu>
+
+        <!--
             Icons rather than words: the text toolbar ran out of room at four
             buttons, and a drawing tool that spells out its commands is a
             drawing tool nobody has used before.
@@ -245,6 +280,9 @@
                                          Tag="{StaticResource Icon.DimensionBaseline}" ToolTip="Baseline  -  a run of dimensions from one origin. Needs to pick an existing dimension to continue from" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.DimensionContinue}" ToolTip="Continue  -  the same, end to end instead of stacked" />
+                            <!-- A button, not a tool: it opens a dialog and leaves whatever tool is in hand alone. -->
+                            <Button Style="{StaticResource ToolButton}" Click="OnDimensionStyleClick"
+                                    Tag="{StaticResource Icon.DimensionStyle}" ToolTip="Dimension style  -  text height, arrow size, gaps, decimals and the overall scale" />
                         </UniformGrid>
                     </StackPanel>
                 </ScrollViewer>

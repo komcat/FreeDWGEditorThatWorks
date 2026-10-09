@@ -58,7 +58,20 @@ public sealed class DwgSession
     public static DwgSession CreateNew()
     {
         var document = new CadDocument();
-        document.Header.InsUnits = ACadSharp.Types.Units.UnitsType.Millimeters;
+        var header = document.Header;
+        header.InsUnits = ACadSharp.Types.Units.UnitsType.Millimeters;
+
+        // A fresh document carries AutoCAD's imperial defaults -- 0.18 text --
+        // which in a millimetre drawing is dimension text nobody can see.
+        // ISO 129, as acadiso.dwt has it, is what a metric drawing starts with.
+        var iso = FreeDwg.Core.Scene.DimensionStyle.Iso;
+        header.DimensionTextHeight = iso.TextHeight;
+        header.DimensionArrowSize = iso.ArrowSize;
+        header.DimensionExtensionLineOffset = iso.ExtensionOffset;
+        header.DimensionExtensionLineExtension = iso.ExtensionBeyond;
+        header.DimensionLineGap = iso.TextGap;
+        header.DimensionDecimalPlaces = (short)iso.Decimals;
+        header.DimensionScaleFactor = 1;
 
         return new DwgSession(document, DwgLoader.Convert(document, new ImportDiagnostics()), null);
     }

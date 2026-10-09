@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 682 tests, ~1s
+dotnet test                 # 709 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -178,6 +178,14 @@ with no WPF and no parser present. Do not add either reference to Core.
   and the first dimension are one `Composite` command, so undo takes both.
   Annotation is not geometry: it belongs where it can be turned off in one
   go, whatever layer is current.
+- **A new dimension's size is the drawing's, not the canvas's.**
+  `Drawing.Dimensions` holds the sizes and an overall scale (DIMSCALE); null
+  means ISO in the drawing's units, which follows a change of unit. It is
+  changed only by `ChangeDimensionSettings`, so it undoes and marks the
+  drawing modified, and it is the file's DIM header variables -- read on
+  open, written on save. Not the DIMSTYLE table: editing a named style would
+  resize, at AutoCAD's next regen, dimensions nobody asked to resize. The
+  canvas pushes it into the dimension tool on every change and every undo.
 - **Layers are edited through commands too** (`AddLayer`, `DeleteLayer`,
   `ChangeLayer`). An entity names its layer by *position*, so removing one
   renumbers every entity in every layout, inside every block, and in every

@@ -19,6 +19,7 @@ using AcadLayer = ACadSharp.Tables.Layer;
 using AcadLine = ACadSharp.Entities.Line;
 using SceneDrawing = FreeDwg.Core.Scene.Drawing;
 using SceneLayer = FreeDwg.Core.Scene.Layer;
+using DimensionStyle = FreeDwg.Core.Scene.DimensionStyle;
 
 namespace FreeDwg.Tests;
 
@@ -155,6 +156,10 @@ public sealed class SaveTests : IDisposable
         Assert.Equal(Rgb.White, zero.Color);
         Assert.NotEqual(0ul, zero.SourceHandle);
         Assert.Same(zero, drawing.CurrentLayer);
+
+        // ISO, not the imperial 0.18 a fresh document carries, which in a
+        // millimetre drawing is dimension text nobody can see.
+        Assert.Equal(DimensionStyle.Iso, DimensionStyle.For(drawing));
     }
 
     [Fact]
@@ -360,6 +365,28 @@ public sealed class SaveTests : IDisposable
         stack.Undo();
         session.Save(stack);
         AssertNear(new Vec2(200, 0), Single<SCircle>(DwgLoader.Load(file)).Center);
+    }
+
+    [Fact]
+    public void DimensionSettingsAreWrittenToTheDimVariablesAndReadBack()
+    {
+        var session = DwgSession.CreateNew();
+        var drawing = session.Drawing;
+        var stack = Stack(session);
+
+        var settings = new DimensionSettings(new DimensionStyle(3.5, 3, 1, 2, 0.8, DrawingUnits.Millimetres, 1), 50);
+        stack.Do(ChangeDimensionSettings.Including(drawing, settings, restyleExisting: false));
+
+        string file = PathFor("dimstyle.dwg");
+        session.Save(stack, file);
+
+        var header = DwgReader.Read(file).Header;
+        Assert.Equal(3.5, header.DimensionTextHeight, 9);
+        Assert.Equal(3, header.DimensionArrowSize, 9);
+        Assert.Equal(50, header.DimensionScaleFactor, 9);
+        Assert.Equal(1, header.DimensionDecimalPlaces);
+
+        Assert.Equal(settings, DwgLoader.Load(file).Dimensions);
     }
 
     [Fact]

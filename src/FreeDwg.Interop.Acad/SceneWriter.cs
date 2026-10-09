@@ -1166,5 +1166,33 @@ internal sealed class SceneWriter
 
         if (_drawing.CurrentLayer is { } current && _doc.Layers.Contains(current.Name))
             header.CurrentLayerName = current.Name;
+
+        SyncDimensionSettings(header);
+    }
+
+    /// <summary>
+    /// The DIM variables, so the file's next dimension -- drawn here or in
+    /// AutoCAD -- comes out the size this drawing's did.
+    /// </summary>
+    /// <remarks>
+    /// The header rather than the dimension style table: these are the
+    /// current settings, which AutoCAD applies to new dimensions only. Editing
+    /// the style itself would quietly resize every dimension already using it
+    /// the next time AutoCAD regenerates them, which is what the dialog's own
+    /// "apply to existing" box is for, and only when it is ticked.
+    /// </remarks>
+    private void SyncDimensionSettings(ACadSharp.Header.CadHeader header)
+    {
+        if (_drawing.Dimensions is not { IsValid: true } settings) return;
+        if (DwgLoader.DimensionSettingsOf(header, _drawing.Units) == settings) return;
+
+        var sizes = settings.Sizes;
+        header.DimensionTextHeight = sizes.TextHeight;
+        header.DimensionArrowSize = sizes.ArrowSize;
+        header.DimensionExtensionLineOffset = sizes.ExtensionOffset;
+        header.DimensionExtensionLineExtension = sizes.ExtensionBeyond;
+        header.DimensionLineGap = sizes.TextGap;
+        header.DimensionDecimalPlaces = (short)sizes.Decimals;
+        header.DimensionScaleFactor = settings.Scale;
     }
 }

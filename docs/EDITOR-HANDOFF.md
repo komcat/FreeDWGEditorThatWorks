@@ -122,8 +122,12 @@ an entity tool always does, and nothing before this changed its mind
 half way through. The tool holds the centre and the radius rather than the
 object it read them from, so it still has no reference into the drawing.
 
-There is no DIMSCALE, so a drawing meant for 1:100 gets text sized for 1:1.
-Angular, baseline and continue are not written. And **imported DIMENSIONs
+The sizes new dimensions take are the drawing's `DimensionSettings`: five
+sizes and an overall scale (DIMSCALE), set from the dimension style button
+at the end of the Dimensions palette or from Drawing settings, read from the
+file's DIM header variables on open and written back on save. The dialog can
+resize the dimensions already drawn in the same undo step; the properties
+panel resizes selected ones. Angular, baseline and continue are not written. And **imported DIMENSIONs
 still arrive as exploded anonymous blocks**: the reader was never changed,
 because the two only have to be reconciled when one is written back, which
 is E5.
@@ -783,9 +787,10 @@ Known gaps, roughly in the order they will be met:
    for. Angular needs a dimension line that is an arc, which is a second
    layout rather than a variation on the linear one; baseline and continue
    need to pick an existing dimension to carry on from.
-7. **A dimension style dialog**, and DIMSCALE with it. The sizes are a
-   `DimensionStyle` on each dimension and a default on the canvas, so there
-   is somewhere for one to write to.
+7. **Dimension styles by name.** The dialog edits the drawing's one set of
+   current settings, which is AutoCAD's DIM header variables; the named
+   DIMSTYLE table is never edited, and an imported dimension's own style is
+   not read.
 
 ## Traps already paid for
 

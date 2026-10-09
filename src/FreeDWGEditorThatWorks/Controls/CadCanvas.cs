@@ -1707,6 +1707,30 @@ public sealed class CadCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Changes the sizes new dimensions are drawn with, and optionally every
+    /// dimension already drawn, as one undoable step.
+    /// </summary>
+    /// <remarks>
+    /// The dimension tool in hand is told at once: a setting the tools use
+    /// is pushed into them, never copied, so a dimension started before the
+    /// change comes out at the new size like one started after it.
+    /// </remarks>
+    public bool SetDimensionSettings(DimensionSettings settings, bool restyleExisting)
+    {
+        if (_drawing is null || Commands is null || !settings.IsValid) return false;
+
+        Commands.Do(ChangeDimensionSettings.Including(_drawing, settings, restyleExisting));
+        ApplyToolSettings();
+
+        // A restyled dimension is a replacement; the one that was selected
+        // has gone, and its successor takes its place in the selection.
+        Selection.Prune(_drawing.ActiveLayout.Entities.Contains);
+
+        RaiseDrawingEdited();
+        return true;
+    }
+
+    /// <summary>
     /// Renames or restyles a layer, taking the entities that were following
     /// it along with it.
     /// </summary>
@@ -1828,6 +1852,10 @@ public sealed class CadCanvas : FrameworkElement
         // alive on screen as a highlight over nothing.
         if (_drawing is not null)
             Selection.Prune(_drawing.ActiveLayout.Entities.Contains);
+
+        // Undoing a dimension style puts the old sizes back, and a dimension
+        // tool in hand has to draw at those, not at the ones taken back.
+        ApplyToolSettings();
 
         RaiseDrawingEdited();
         InvalidateVisual();

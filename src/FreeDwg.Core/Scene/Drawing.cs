@@ -52,6 +52,15 @@ public sealed class Drawing
     public int LinearPrecision { get; set; } = 3;
 
     /// <summary>
+    /// What new dimensions are drawn with, if the drawing says. Null means
+    /// ISO sizes in this drawing's units, which follow a change of unit;
+    /// anything set here -- from the file's DIM variables, or the dimension
+    /// style dialog -- is taken as it is. Changed through
+    /// <c>ChangeDimensionSettings</c>, so it is undoable and it is saved.
+    /// </summary>
+    public DimensionSettings? Dimensions { get; set; }
+
+    /// <summary>
     /// The layer new entities are created on. Index into <see cref="Layers"/>;
     /// out of range reads as layer 0, which is the one every DWG has.
     /// </summary>
