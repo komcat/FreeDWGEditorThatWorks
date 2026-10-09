@@ -63,10 +63,28 @@ public sealed class RectangleTool : DrawTool
 
     public override string Prompt => Points.Count == 0
         ? "Rectangle: pick the first corner"
-        : "Rectangle: pick the opposite corner";
+        : "Rectangle: pick the opposite corner, or type a width -- Tab for the height";
 
     protected override SceneEntity? Build(Vec2 last) =>
         Points.Count < 2 ? null : Make(Points[0], Points[1]);
+
+    /// <summary>
+    /// The opposite corner, with whichever sides have been typed held to
+    /// their size and the rest left where the cursor puts them.
+    /// </summary>
+    /// <remarks>
+    /// A typed size says how big, never which way: the cursor still decides
+    /// which side of the first corner the rectangle opens towards, so a
+    /// width of 100 typed with the cursor to the left draws to the left. A
+    /// cursor exactly level with the corner has no side, and takes the
+    /// positive one rather than giving no rectangle at all.
+    /// </remarks>
+    public static Vec2 Constrain(Vec2 corner, Vec2 cursor, double? width, double? height)
+    {
+        double x = width is { } w ? corner.X + (cursor.X < corner.X ? -w : w) : cursor.X;
+        double y = height is { } h ? corner.Y + (cursor.Y < corner.Y ? -h : h) : cursor.Y;
+        return new Vec2(x, y);
+    }
 
     private static SPolyline? Make(Vec2 a, Vec2 b)
     {

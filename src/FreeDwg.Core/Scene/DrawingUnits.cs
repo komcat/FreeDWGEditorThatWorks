@@ -133,41 +133,87 @@ public static class Units
     /// which is how anyone working to a drawing in one unit and a datasheet
     /// in another expects to be able to type.
     /// </remarks>
-    public static bool TryParseLength(string text, DrawingUnits document, out double value)
+    public static bool TryParseLength(string text, DrawingUnits document, out double value) =>
+        TryParseLength(text, document, out value, out _);
+
+    /// <summary>
+    /// The same, also saying which unit the text named -- null for a bare
+    /// number -- so the box it was typed in can show what it converted to.
+    /// </summary>
+    public static bool TryParseLength(string text, DrawingUnits document, out double value, out DrawingUnits? named)
     {
         value = 0;
+        named = null;
 
         string trimmed = text.Trim();
         if (trimmed.Length == 0) return false;
 
-        var typed = document;
+        // Feet and inches together, the way an architectural drawing writes
+        // them: 5'6", 5' 6, 5'-6", 5ft 6in. Read before the single-unit form,
+        // which would otherwise take the inch mark and choke on the feet.
+        var compound = FeetAndInches.Match(trimmed);
+        if (compound.Success)
+        {
+            double feet = double.Parse(compound.Groups["feet"].Value, CultureInfo.InvariantCulture);
+            double inches = double.Parse(compound.Groups["inches"].Value, CultureInfo.InvariantCulture);
+
+            named = DrawingUnits.Feet;
+            value = (feet * 12 + inches) * InMillimetres(DrawingUnits.Inches) / InMillimetres(document);
+            return true;
+        }
+
+        DrawingUnits? unit = null;
         foreach (var (suffix, units) in Suffixes)
         {
             if (!trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
 
-            typed = units;
-            trimmed = trimmed[..^suffix.Length].Trim();
+            // A unit has to stand on its own: "5min" is not five inches with
+            // something in front of it, it is a typing mistake.
+            string rest = trimmed[..^suffix.Length];
+            if (rest.Length > 0 && char.IsLetter(rest[^1])) continue;
+
+            unit = units;
+            trimmed = rest.Trim();
             break;
         }
 
         if (!double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double number))
             return false;
 
-        value = number * InMillimetres(typed) / InMillimetres(document);
+        named = unit;
+        value = number * InMillimetres(unit ?? document) / InMillimetres(document);
         return true;
     }
 
+    private static readonly System.Text.RegularExpressions.Regex FeetAndInches = new(
+        """^(?<feet>\d+(\.\d+)?)\s*('|ft|foot|feet)\s*-?\s*(?<inches>\d+(\.\d+)?)\s*("|in|inch|inches)?$""",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     /// <summary>
     /// Longest first, so that "mm" is not read as "m" with a stray letter in
-    /// front of it.
+    /// front of it, nor "inches" as "es" after something.
     /// </summary>
     private static readonly (string Suffix, DrawingUnits Units)[] Suffixes =
-    [
-        ("mm", DrawingUnits.Millimetres),
-        ("in", DrawingUnits.Inches),
-        ("ft", DrawingUnits.Feet),
-        ("\"", DrawingUnits.Inches),
-        ("'", DrawingUnits.Feet),
-        ("m", DrawingUnits.Metres),
-    ];
+        new (string Suffix, DrawingUnits Units)[]
+        {
+            ("mm", DrawingUnits.Millimetres), ("millimetre", DrawingUnits.Millimetres),
+            ("millimetres", DrawingUnits.Millimetres), ("millimeter", DrawingUnits.Millimetres),
+            ("millimeters", DrawingUnits.Millimetres),
+            ("cm", DrawingUnits.Centimetres), ("centimetre", DrawingUnits.Centimetres),
+            ("centimetres", DrawingUnits.Centimetres), ("centimeter", DrawingUnits.Centimetres),
+            ("centimeters", DrawingUnits.Centimetres),
+            ("m", DrawingUnits.Metres), ("metre", DrawingUnits.Metres), ("metres", DrawingUnits.Metres),
+            ("meter", DrawingUnits.Metres), ("meters", DrawingUnits.Metres),
+            ("km", DrawingUnits.Kilometres), ("kilometre", DrawingUnits.Kilometres),
+            ("kilometres", DrawingUnits.Kilometres), ("kilometer", DrawingUnits.Kilometres),
+            ("kilometers", DrawingUnits.Kilometres),
+            ("in", DrawingUnits.Inches), ("inch", DrawingUnits.Inches), ("inches", DrawingUnits.Inches),
+            ("\"", DrawingUnits.Inches),
+            ("ft", DrawingUnits.Feet), ("foot", DrawingUnits.Feet), ("feet", DrawingUnits.Feet),
+            ("'", DrawingUnits.Feet),
+            ("yd", DrawingUnits.Yards), ("yard", DrawingUnits.Yards), ("yards", DrawingUnits.Yards),
+            ("mi", DrawingUnits.Miles), ("mile", DrawingUnits.Miles), ("miles", DrawingUnits.Miles),
+        }
+        .OrderByDescending(entry => entry.Suffix.Length)
+        .ToArray();
 }

@@ -65,11 +65,60 @@ public sealed class UnitTests
     }
 
     [Theory]
+    [InlineData("123cm", 1230.0)]
+    [InlineData("5 m", 5000.0)]
+    [InlineData("100 mm", 100.0)]
+    [InlineData("0.002km", 2000.0)]
+    [InlineData("1yd", 914.4)]
+    [InlineData("12\"", 304.8)]
+    [InlineData("12'", 3657.6)]
+    [InlineData("12 inches", 304.8)]
+    [InlineData("1 inch", 25.4)]
+    [InlineData("2 feet", 609.6)]
+    [InlineData("1 foot", 304.8)]
+    [InlineData("3 metres", 3000.0)]
+    [InlineData("3 meters", 3000.0)]
+    [InlineData("4 centimetres", 40.0)]
+    [InlineData("1E3MM", 1000.0)]
+    public void EveryUnitAndItsSpelledOutNameIsUnderstood(string typed, double expected)
+    {
+        Assert.True(Units.TryParseLength(typed, DrawingUnits.Millimetres, out double value));
+        Assert.Equal(expected, value, 6);
+    }
+
+    [Theory]
+    [InlineData("5'6\"")]
+    [InlineData("5' 6\"")]
+    [InlineData("5'-6\"")]
+    [InlineData("5'6")]
+    [InlineData("5ft 6in")]
+    [InlineData("5 feet 6 inches")]
+    public void FeetAndInchesTogetherAreOneLength(string typed)
+    {
+        // The way an architectural drawing writes a length: 66 inches.
+        Assert.True(Units.TryParseLength(typed, DrawingUnits.Inches, out double value));
+        Assert.Equal(66.0, value, 9);
+    }
+
+    [Theory]
+    [InlineData("12\"", DrawingUnits.Inches)]
+    [InlineData("5'6\"", DrawingUnits.Feet)]
+    [InlineData("123cm", DrawingUnits.Centimetres)]
+    [InlineData("50", null)]
+    public void TheUnitTypedIsReportedSoTheBoxCanShowTheConversion(string typed, DrawingUnits? expected)
+    {
+        Assert.True(Units.TryParseLength(typed, DrawingUnits.Millimetres, out _, out var named));
+        Assert.Equal(expected, named);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("fifty")]
     [InlineData("mm")]
     [InlineData("50 furlongs")]
+    [InlineData("5min")]
+    [InlineData("5xm")]
     public void NonsenseIsRefused(string typed)
     {
         Assert.False(Units.TryParseLength(typed, DrawingUnits.Millimetres, out _));

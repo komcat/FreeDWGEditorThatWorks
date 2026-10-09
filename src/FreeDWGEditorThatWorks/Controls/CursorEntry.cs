@@ -16,6 +16,13 @@ public enum CursorEntry
     /// <summary>How far the run being drawn, or the grip being dragged, goes.</summary>
     Length,
 
+    /// <summary>
+    /// The width and height of a rectangle whose first corner is down. Two
+    /// numbers, not one, and Tab moves between them -- but still one entry,
+    /// because both say where the one next point goes.
+    /// </summary>
+    Size,
+
     /// <summary>The radius a fillet rounds a corner to.</summary>
     Radius,
 

@@ -380,6 +380,11 @@
                     on the cursor, and a measurement shown anywhere else is
                     one nobody reads while drawing. The caption says which
                     number it is: a length, a fillet radius, a chamfer.
+
+                    A rectangle has two, width and height, with Tab between
+                    them; the second pair is shown only then. The text after
+                    the boxes is the drawing's unit, or what a length typed in
+                    another unit comes to in it.
                 -->
                 <Border x:Name="LengthOverlay" Grid.Row="0" Visibility="Collapsed"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -391,7 +396,13 @@
                         <TextBox x:Name="LengthBox" MinWidth="76" Background="Transparent"
                                  Foreground="White" BorderThickness="0" CaretBrush="White"
                                  VerticalContentAlignment="Center"
-                                 PreviewKeyDown="OnLengthKey" />
+                                 PreviewKeyDown="OnLengthKey" TextChanged="OnEntryTextChanged" />
+                        <TextBlock x:Name="SecondCaption" Text="Height" Foreground="#FF9FB3C8"
+                                   VerticalAlignment="Center" Margin="10,0,6,0" Visibility="Collapsed" />
+                        <TextBox x:Name="SecondBox" MinWidth="76" Background="Transparent"
+                                 Foreground="White" BorderThickness="0" CaretBrush="White"
+                                 VerticalContentAlignment="Center" Visibility="Collapsed"
+                                 PreviewKeyDown="OnLengthKey" TextChanged="OnEntryTextChanged" />
                         <TextBlock x:Name="LengthUnit" Foreground="#FF9FB3C8" VerticalAlignment="Center"
                                    Margin="6,0,0,0" />
                     </StackPanel>

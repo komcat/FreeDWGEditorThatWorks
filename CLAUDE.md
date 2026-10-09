@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 647 tests, ~1s
+dotnet test                 # 682 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -115,7 +115,12 @@ with no WPF and no parser present. Do not add either reference to Core.
 - **`CursorEntry` is the single answer to "what does the box beside the
   cursor edit".** A length while a point is being placed, otherwise the size
   the corner tool in hand works to. One enum, one destination for a typed
-  number, for the reason `Mode` is one enum.
+  number, for the reason `Mode` is one enum. A rectangle's second corner is
+  `Size`: width and height, Tab between them, each held as it is typed
+  (`LockSize`) and applied inside `ResolvePoint`, so the preview, the click
+  and Enter all land on the same corner. A typed size says how big, never
+  which way -- the cursor still picks the side. Lengths take any unit, spelled
+  out or not, and `5'6"`; the box shows what a foreign unit converts to.
 - **The app is smoke tested by running it.** `StartupTests` launches the real
   executable and waits for a window. A `StaticResource` that resolves to
   nothing, or a handler that fires mid-XAML-parse, compiles clean, passes

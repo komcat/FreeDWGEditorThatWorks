@@ -475,6 +475,58 @@ public sealed class CanvasTests
     }
 
     [Fact]
+    public void ARectangleTakesATypedWidthAndHeight()
+    {
+        var (entry, preview, bounds, after) = OnCanvas((canvas, drawing) =>
+        {
+            canvas.Snapping.Modes = SnapModes.None;
+
+            canvas.UseTool(new RectangleTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+
+            // Aimed down and to the left: that is the way it should open.
+            canvas.ResolvePoint(new Vec2(-5, -7));
+            var entry = canvas.Entry;
+
+            // Width typed: the preview corner holds it while the height
+            // still follows the cursor.
+            canvas.LockSize(100, null);
+            var preview = canvas.PendingPoint;
+
+            canvas.LockSize(100, 40);
+            canvas.PlaceSizedCorner();
+
+            var rectangle = Assert.IsType<SPolyline>(Assert.Single(drawing.Entities));
+
+            // A typed size belonged to that corner, not to the next one.
+            canvas.PlaceToolPoint(new Vec2(500, 500));
+            canvas.ResolvePoint(new Vec2(503, 504));
+            return (entry, preview, rectangle.Bounds, canvas.PendingPoint);
+        });
+
+        Assert.Equal(CursorEntry.Size, entry);
+        Assert.Equal(new Vec2(-100, -7), preview);
+        Assert.Equal(-100, bounds.MinX, 9);
+        Assert.Equal(-40, bounds.MinY, 9);
+        Assert.Equal(0, bounds.MaxX, 9);
+        Assert.Equal(0, bounds.MaxY, 9);
+        Assert.Equal(new Vec2(503, 504), after);
+    }
+
+    [Fact]
+    public void ALineStillTakesOneLengthNotASize()
+    {
+        var entry = OnCanvas((canvas, drawing) =>
+        {
+            canvas.UseTool(new LineTool());
+            canvas.PlaceToolPoint(new Vec2(0, 0));
+            return canvas.Entry;
+        });
+
+        Assert.Equal(CursorEntry.Length, entry);
+    }
+
+    [Fact]
     public void ATypedLengthNeedsADirectionToRunIn()
     {
         var (placed, count) = OnCanvas((canvas, drawing) =>

@@ -69,6 +69,16 @@ public sealed class CadCanvas : FrameworkElement
     private Vec2 _snapped;
     private SnapResult _snap;
 
+    /// <summary>Where the next point would land before any typed size holds it.</summary>
+    private Vec2 _aimed;
+
+    /// <summary>
+    /// The sides of the rectangle being drawn that have been typed. Null
+    /// follows the cursor. They belong to the one corner being placed and go
+    /// with it: placed, cancelled, or a new tool.
+    /// </summary>
+    private double? _lockedWidth, _lockedHeight;
+
     /// <summary>How far a click may miss by, in device pixels.</summary>
     private const double PickRadiusPixels = 6.0;
 
@@ -308,6 +318,7 @@ public sealed class CadCanvas : FrameworkElement
 
         _tool = tool;
         Mode = mode;
+        ClearSizeLocks();
 
         // Drawing and selecting are different modes, and carrying a selection
         // into a draw tool only makes the next Delete a surprise. A modify
@@ -370,7 +381,8 @@ public sealed class CadCanvas : FrameworkElement
     {
         get
         {
-            if (PendingFrom is not null) return CursorEntry.Length;
+            if (PendingFrom is not null)
+                return _heldGrip is null && _tool is RectangleTool ? CursorEntry.Size : CursorEntry.Length;
 
             return _tool switch
             {
@@ -385,6 +397,7 @@ public sealed class CadCanvas : FrameworkElement
     public double? EntryValue => Entry switch
     {
         CursorEntry.Length => PendingLength,
+        CursorEntry.Size => PendingSize?.X,
         CursorEntry.Radius => _filletRadius,
         CursorEntry.Distance => _chamferDistance,
         _ => null,
@@ -400,6 +413,10 @@ public sealed class CadCanvas : FrameworkElement
         {
             case CursorEntry.Length:
                 return PlaceTypedLength(value);
+
+            case CursorEntry.Size:
+                LockSize(value, _lockedHeight);
+                return PlaceSizedCorner();
 
             case CursorEntry.Radius when value >= 0:
                 FilletRadius = value;
@@ -436,6 +453,70 @@ public sealed class CadCanvas : FrameworkElement
     /// <summary>How long the run being drawn currently is.</summary>
     public double? PendingLength =>
         PendingFrom is { } from ? Vec2.Distance(from, _snapped) : null;
+
+    /// <summary>The width and height the rectangle being drawn would have.</summary>
+    public Vec2? PendingSize =>
+        Entry == CursorEntry.Size && PendingFrom is { } from
+            ? new Vec2(Math.Abs(_snapped.X - from.X), Math.Abs(_snapped.Y - from.Y))
+            : null;
+
+    /// <summary>The rectangle's typed width, if one has been typed.</summary>
+    public double? LockedWidth => _lockedWidth;
+
+    /// <summary>The rectangle's typed height, if one has been typed.</summary>
+    public double? LockedHeight => _lockedHeight;
+
+    /// <summary>
+    /// Holds the rectangle being drawn to a typed width, height or both;
+    /// null lets that side follow the cursor again.
+    /// </summary>
+    /// <remarks>
+    /// Applied at once rather than on Enter, so the preview shows the size
+    /// being typed while the other side is still being aimed with the mouse.
+    /// </remarks>
+    public void LockSize(double? width, double? height)
+    {
+        if (Entry != CursorEntry.Size) return;
+
+        _lockedWidth = width is > 0 ? width : null;
+        _lockedHeight = height is > 0 ? height : null;
+        ApplySizeLocks();
+
+        InvalidateVisual();
+        PendingPointChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Places the rectangle's opposite corner where the typed sizes and the
+    /// cursor together put it. False when no rectangle is being drawn.
+    /// </summary>
+    public bool PlaceSizedCorner()
+    {
+        if (Entry != CursorEntry.Size) return false;
+
+        ApplySizeLocks();
+        PlaceToolPoint(_snapped);
+        return true;
+    }
+
+    private void ClearSizeLocks() => _lockedWidth = _lockedHeight = null;
+
+    /// <summary>
+    /// Holds the aimed point to the typed sides. A point moved off what it
+    /// snapped to is no longer on it, so the snap marker goes.
+    /// </summary>
+    private void ApplySizeLocks()
+    {
+        _snapped = _aimed;
+        if (_lockedWidth is null && _lockedHeight is null) return;
+        if (Entry != CursorEntry.Size || PendingFrom is not { } corner) return;
+
+        var held = RectangleTool.Constrain(corner, _aimed, _lockedWidth, _lockedHeight);
+        if (held == _snapped) return;
+
+        _snapped = held;
+        _snap = default;
+    }
 
     /// <summary>
     /// Places the next point at a typed distance, keeping the direction the
@@ -509,7 +590,8 @@ public sealed class CadCanvas : FrameworkElement
         // job: anything calling it directly got the answer back but left the
         // preview, the length readout and a typed length all looking at the
         // previous position.
-        _snapped = _snap.Point;
+        _aimed = _snap.Point;
+        ApplySizeLocks();
         return _snapped;
     }
 
@@ -569,6 +651,12 @@ public sealed class CadCanvas : FrameworkElement
     /// typed. The shell opens its length box on it.
     /// </summary>
     public event EventHandler<string>? LengthTypingStarted;
+
+    /// <summary>
+    /// Fires when Tab is pressed while there is a size to type, so the shell
+    /// can open its box on the first field without anything typed yet.
+    /// </summary>
+    public event EventHandler? EntryFieldRequested;
 
     /// <summary>Fires after the drawing is edited, so the shell can refresh counts.</summary>
     public event EventHandler? DrawingEdited;
@@ -1136,6 +1224,17 @@ public sealed class CadCanvas : FrameworkElement
             case Key.Delete:
                 if (EraseSelection()) e.Handled = true;
                 return;
+
+            case Key.Tab:
+                // Tab is how the width and height of a rectangle are reached
+                // without typing a digit first, so it is not focus travel
+                // while there is one being drawn.
+                if (Entry == CursorEntry.Size)
+                {
+                    EntryFieldRequested?.Invoke(this, EventArgs.Empty);
+                    e.Handled = true;
+                }
+                return;
         }
     }
 
@@ -1161,6 +1260,7 @@ public sealed class CadCanvas : FrameworkElement
         if (_tool is { InProgress: true })
         {
             _tool.Cancel();
+            ClearSizeLocks();
             Snapping.ClearTracking();
 
             InvalidateVisual();
@@ -1363,6 +1463,10 @@ public sealed class CadCanvas : FrameworkElement
             default:
                 return;
         }
+
+        // A typed size was for the corner just placed, not the next one.
+        ClearSizeLocks();
+        _aimed = _snapped;
 
         InvalidateVisual();
         ModeChanged?.Invoke(this, EventArgs.Empty);

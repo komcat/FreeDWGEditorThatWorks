@@ -88,6 +88,20 @@ public sealed class ToolTests
         Assert.Null(tool.Click(new Vec2(30, 10)));
     }
 
+    [Theory]
+    [InlineData(25.0, 7.0, 100.0, null, 110.0, 7.0)]   // width typed, height aimed
+    [InlineData(25.0, 17.0, null, 40.0, 25.0, 50.0)]   // height typed, width aimed
+    [InlineData(25.0, 17.0, 100.0, 40.0, 110.0, 50.0)] // both typed
+    [InlineData(-3.0, -8.0, 100.0, 40.0, -90.0, -30.0)] // the cursor says which way
+    [InlineData(10.0, 10.0, 100.0, 40.0, 110.0, 50.0)] // level with the corner: positive
+    [InlineData(25.0, 7.0, null, null, 25.0, 7.0)]     // nothing typed: the cursor
+    public void ATypedRectangleSizeHoldsItsSideAndTheCursorPicksTheDirection(
+        double cursorX, double cursorY, double? width, double? height, double x, double y)
+    {
+        var corner = RectangleTool.Constrain(new Vec2(10, 10), new Vec2(cursorX, cursorY), width, height);
+        Assert.Equal(new Vec2(x, y), corner);
+    }
+
     [Fact]
     public void ACircleTakesItsRadiusFromTheSecondPoint()
     {

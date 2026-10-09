@@ -131,6 +131,9 @@ public partial class MainWindow : Window
         // is what stops two of them being lit at once.
         Canvas.ModeChanged += (_, _) =>
         {
+            // A point was placed or the tool changed: whatever was typed was
+            // for the point that has gone.
+            _typedFirst = _typedSecond = false;
             SyncModeButtons();
             UpdateStatus();
             RebuildProperties();
@@ -139,6 +142,11 @@ public partial class MainWindow : Window
 
         Canvas.PendingPointChanged += (_, _) => UpdateLengthOverlay();
         Canvas.LengthTypingStarted += (_, typed) => StartTypingLength(typed);
+        Canvas.EntryFieldRequested += (_, _) =>
+        {
+            UpdateLengthOverlay();
+            FocusEntryBox(LengthBox);
+        };
         Canvas.DrawingEdited += (_, _) =>
         {
             if (Canvas.Drawing is { } drawing) PopulateLayers(drawing);
@@ -1083,15 +1091,25 @@ public partial class MainWindow : Window
     // ---- the overlay beside the cursor -------------------------------------
 
     /// <summary>
+    /// Whether each box holds something typed rather than the live figure.
+    /// A typed box is left alone as the mouse moves; an untyped one follows
+    /// it, so Tab into the height shows the height as it stands.
+    /// </summary>
+    private bool _typedFirst, _typedSecond;
+
+    /// <summary>Set while the shell writes a box, so that is not mistaken for typing.</summary>
+    private bool _writingEntry;
+
+    /// <summary>
     /// Shows the number the tool in hand is working to, beside the cursor.
     /// </summary>
     /// <remarks>
     /// Which number that is comes from the canvas rather than being worked
     /// out here, so there is one answer to it: a length while a point is
     /// being placed, a radius while a fillet is waiting for its edges, a
-    /// distance for a chamfer.
+    /// distance for a chamfer, a width and a height for a rectangle.
     /// <para>
-    /// Left alone while it is being typed into: overwriting what someone is
+    /// Left alone once it has been typed into: overwriting what someone is
     /// halfway through entering, twenty times a second as the mouse moves,
     /// would make it impossible to use.
     /// </para>
@@ -1106,41 +1124,137 @@ public partial class MainWindow : Window
             return;
         }
 
+        bool size = Canvas.Entry == CursorEntry.Size;
+
         LengthOverlay.Visibility = Visibility.Visible;
         LengthCaption.Text = Canvas.Entry switch
         {
             CursorEntry.Radius => "Radius",
             CursorEntry.Distance => "Distance",
+            CursorEntry.Size => "Width",
             _ => "Length",
         };
 
-        LengthUnit.Text = Units.Suffix(drawing.Units);
+        SecondCaption.Visibility = SecondBox.Visibility = size ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!LengthBox.IsKeyboardFocusWithin)
-            LengthBox.Text = Units.Format(value, drawing.Units, drawing.LinearPrecision);
+        if (!_typedFirst) ShowLive(LengthBox, value, drawing);
+        if (size && !_typedSecond && Canvas.PendingSize is { } pending) ShowLive(SecondBox, pending.Y, drawing);
+
+        ShowUnitHint();
 
         // Just below and right of the cursor, clear of the crosshair and of
         // the snap marker sitting on it. A corner size is not attached to a
         // point being placed, so it follows the cursor itself.
         var at = Canvas.Camera.WorldToScreen(
-            Canvas.Entry == CursorEntry.Length ? Canvas.PendingPoint : Canvas.CursorWorld);
+            Canvas.Entry is CursorEntry.Length or CursorEntry.Size ? Canvas.PendingPoint : Canvas.CursorWorld);
 
         LengthOverlay.Margin = new Thickness(at.X + 18, at.Y + 18, 0, 0);
+    }
+
+    /// <summary>
+    /// The figure as it stands. A box with the keyboard keeps everything
+    /// selected, so the first key typed replaces the figure rather than
+    /// adding to it.
+    /// </summary>
+    private void ShowLive(TextBox box, double value, SceneDrawing drawing)
+    {
+        // A length box with the keyboard is being typed into, whatever the
+        // flag says; overwriting it twenty times a second would make it
+        // impossible to use.
+        if (box.IsKeyboardFocusWithin && Canvas.Entry != CursorEntry.Size) return;
+
+        _writingEntry = true;
+        box.Text = Units.Format(value, drawing.Units, drawing.LinearPrecision);
+        _writingEntry = false;
+
+        if (box.IsKeyboardFocusWithin) box.SelectAll();
+    }
+
+    /// <summary>
+    /// The drawing's unit after the boxes -- or, once a length in some other
+    /// unit has been typed, what it comes to in this one, so 12" in a
+    /// millimetre drawing says = 304.8 mm before it is committed.
+    /// </summary>
+    private void ShowUnitHint()
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        string suffix = Units.Suffix(drawing.Units);
+        var box = SecondBox.IsKeyboardFocusWithin ? SecondBox : LengthBox;
+        bool typed = ReferenceEquals(box, SecondBox) ? _typedSecond : _typedFirst;
+
+        LengthUnit.Text =
+            typed && Units.TryParseLength(box.Text, drawing.Units, out double value, out var named)
+                  && named is { } unit && unit != drawing.Units
+                ? $"= {Units.Format(value, drawing.Units, drawing.LinearPrecision)} {suffix}".TrimEnd()
+                : suffix;
     }
 
     private void StartTypingLength(string typed)
     {
         UpdateLengthOverlay();
 
-        LengthBox.Text = typed;
-        LengthBox.CaretIndex = LengthBox.Text.Length;
-        LengthBox.Focus();
+        // Into whichever box is not already in hand: a digit typed at the
+        // canvas starts the width, or the height if that is where Tab left it.
+        var box = SecondBox.IsKeyboardFocusWithin ? SecondBox : LengthBox;
+        box.Focus();
+        box.Text = typed;
+        box.CaretIndex = box.Text.Length;
+    }
+
+    /// <summary>Puts the keyboard in a box showing its live figure, all selected.</summary>
+    private void FocusEntryBox(TextBox box)
+    {
+        if (ReferenceEquals(box, SecondBox) ? !_typedSecond : !_typedFirst) UpdateLengthOverlay();
+
+        box.Focus();
+        box.SelectAll();
+        ShowUnitHint();
+    }
+
+    /// <summary>
+    /// Typing into a rectangle's box holds that side at once, so the preview
+    /// shows the size while the other side is still aimed with the mouse.
+    /// </summary>
+    private void OnEntryTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_ready || _writingEntry || Canvas.Drawing is not { } drawing) return;
+
+        bool second = ReferenceEquals(sender, SecondBox);
+        if (second) _typedSecond = true;
+        else _typedFirst = true;
+
+        if (Canvas.Entry == CursorEntry.Size)
+        {
+            double? typed = Units.TryParseLength(((TextBox)sender).Text, drawing.Units, out double value) && value > 0
+                ? value
+                : null;
+
+            Canvas.LockSize(second ? Canvas.LockedWidth : typed, second ? typed : Canvas.LockedHeight);
+        }
+
+        ShowUnitHint();
     }
 
     private void OnLengthKey(object sender, KeyEventArgs e)
     {
+        bool size = Canvas.Entry == CursorEntry.Size;
+
         switch (e.Key)
         {
+            case Key.Tab when size:
+                // Width and height, either way round, as many times as it
+                // takes. Never out of the box: focus travel would land on
+                // some button the user was not thinking about.
+                FocusEntryBox(ReferenceEquals(sender, SecondBox) ? LengthBox : SecondBox);
+                e.Handled = true;
+                return;
+
+            case Key.Enter when size:
+                CommitTypedSize((TextBox)sender);
+                e.Handled = true;
+                return;
+
             case Key.Enter:
                 CommitTypedLength();
                 e.Handled = true;
@@ -1148,7 +1262,9 @@ public partial class MainWindow : Window
 
             case Key.Escape:
                 // Back to the drawing, with the tool still running: only the
-                // half-typed number is abandoned.
+                // half-typed numbers are abandoned.
+                if (size) Canvas.LockSize(null, null);
+                _typedFirst = _typedSecond = false;
                 Canvas.Focus();
                 UpdateLengthOverlay();
                 e.Handled = true;
@@ -1167,14 +1283,37 @@ public partial class MainWindow : Window
         if (!Units.TryParseLength(LengthBox.Text, drawing.Units, out double value)
             || value < 0 || (wantsPositive && value == 0))
         {
-            StatusText.Text = $"'{LengthBox.Text}' is not a length. Try 50, or 2in, or 0.5m.";
+            StatusText.Text = $"'{LengthBox.Text}' is not a length. Try 50, 12\", 3'6\", 120cm or 0.5m.";
             return;
         }
 
         // The canvas takes the keyboard back so that Escape, Enter and the
         // next digit all reach the tool rather than the box.
         Canvas.Focus();
+        _typedFirst = false;
         Canvas.ApplyEntry(value);
+        UpdateLengthOverlay();
+    }
+
+    /// <summary>
+    /// Enter in either of a rectangle's boxes places the corner: a side that
+    /// was typed is held to it and a side that was not is where the cursor
+    /// put it, which is how one dimension is typed and the other aimed.
+    /// </summary>
+    private void CommitTypedSize(TextBox box)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        bool typed = ReferenceEquals(box, SecondBox) ? _typedSecond : _typedFirst;
+        if (typed && !(Units.TryParseLength(box.Text, drawing.Units, out double value) && value > 0))
+        {
+            StatusText.Text = $"'{box.Text}' is not a length. Try 50, 12\", 3'6\", 120cm or 0.5m.";
+            return;
+        }
+
+        Canvas.Focus();
+        _typedFirst = _typedSecond = false;
+        Canvas.PlaceSizedCorner();
         UpdateLengthOverlay();
     }
 
