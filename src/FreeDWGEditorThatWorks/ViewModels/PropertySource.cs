@@ -87,6 +87,28 @@ public static class PropertySource
                 return true;
             }));
 
+        rows.Add(new PropertyRow(Settings, "New text height",
+            "How tall new text is, in drawing units. Until it is set it follows the dimension text "
+            + "height, so labels and dimensions come out the same size.",
+            PropertyRow.Number(canvas.TextHeight),
+            text =>
+            {
+                if (!PropertyRow.TryNumber(text, out double value) || value <= 0) return false;
+
+                canvas.TextHeight = value;
+                return true;
+            }));
+
+        var textSettings = canvas.Drawing?.Text ?? default;
+        rows.Add(new PropertyRow(Settings, "New text font",
+            "The typeface new text is placed in. Kept in the drawing as its current text style, so it is "
+            + "saved with it.",
+            TextChoices.FontName(textSettings.FontFamily),
+            text => canvas.Drawing is null
+                 || canvas.SetTextSettings(textSettings with { FontFamily = TextChoices.FamilyOf(text.Trim()) })
+                 || true,
+            choices: TextChoices.Fonts(textSettings.FontFamily)));
+
         rows.Add(new PropertyRow(Settings, "Ortho",
             "Holds each new point square with the one before it, so lines come out horizontal or vertical.",
             PropertyRow.Flag(canvas.Snapping.Ortho),
@@ -328,6 +350,66 @@ public static class PropertySource
 
         if (selected.All(entity => entity is SPolyline polyline && RegularPolygon.TryRead(polyline, out _)))
             AddPolygonSize(canvas, selected, rows);
+    }
+
+    /// <summary>A text's height and turn, which it has however many lines it runs to.</summary>
+    private static void AddTextSize(CadCanvas canvas, SText text, List<PropertyRow> rows)
+    {
+        rows.Add(Number(canvas, "Text", "Height", "Capital-letter height in drawing units.",
+            text.Height,
+            (copy, v) =>
+            {
+                if (v <= 0) return false;
+
+                // The gap between lines goes with the letters, or a taller
+                // paragraph would print its lines on top of each other.
+                var resized = (SText)copy;
+                resized.LineStep *= v / resized.Height;
+                resized.Height = v;
+                return true;
+            }));
+
+        rows.Add(Number(canvas, "Text", "Rotation", "Rotation in degrees.",
+            Degrees(text.Rotation),
+            (copy, v) => { ((SText)copy).Rotation = Radians(v); return true; }));
+
+        rows.Add(new PropertyRow("Text", "Font",
+            "The typeface. (Standard) is the drawing's own text style. Saved as a text style in that face, "
+            + "made the way AutoCAD makes one so it draws the same there.",
+            TextChoices.FontName(text.FontFamily),
+            value => Edit(canvas, text, copy =>
+            {
+                ((SText)copy).FontFamily = TextChoices.FamilyOf(value.Trim());
+                return true;
+            }),
+            choices: TextChoices.Fonts(text.FontFamily)));
+
+        rows.Add(new PropertyRow("Text", "Bold", "Heavier strokes.",
+            PropertyRow.Flag(text.Bold),
+            value => PropertyRow.TryFlag(value, out bool on) && Edit(canvas, text, copy =>
+            {
+                ((SText)copy).Bold = on;
+                return true;
+            })));
+
+        rows.Add(new PropertyRow("Text", "Italic", "Slanted.",
+            PropertyRow.Flag(text.Italic),
+            value => PropertyRow.TryFlag(value, out bool on) && Edit(canvas, text, copy =>
+            {
+                ((SText)copy).Italic = on;
+                return true;
+            })));
+
+        rows.Add(new PropertyRow("Text", "Justify",
+            "Which point of the text sits on its insertion point. The point stays where it is and the "
+            + "text arranges itself round it.",
+            TextChoices.JustificationName(text.AnchorX, text.AnchorY),
+            value =>
+            {
+                if (!TextChoices.TryJustification(value, out var x, out var y)) return false;
+                return canvas.ReplaceText(text, text.Lines, TextFormat.Of(text) with { AnchorX = x, AnchorY = y });
+            },
+            choices: TextChoices.JustificationNames));
     }
 
     /// <summary>
@@ -637,22 +719,25 @@ public static class PropertySource
                 else if (RegularPolygon.TryRead(polyline, out _)) AddPolygonSize(canvas, [polyline], rows);
                 return;
 
+            case SText text when text.Lines.Count > 1:
+                // One row cannot hold several lines, and writing one back
+                // would flatten the rest away; the canvas editor can.
+                rows.Add(Derived("Text", "Text",
+                    "Several lines. Double-click the text on the drawing to edit it.",
+                    string.Join(" / ", text.Lines)));
+                AddTextSize(canvas, text, rows);
+                return;
+
             case SText text:
-                rows.Add(new PropertyRow("Text", "Text", "The first line of the text.",
+                rows.Add(new PropertyRow("Text", "Text",
+                    "The words. Double-click the text on the drawing to edit it there, with more than one line.",
                     text.Lines.Count > 0 ? text.Lines[0] : "",
                     value => Edit(canvas, text, copy =>
                     {
                         ((SText)copy).Lines = [value];
                         return true;
                     })));
-
-                rows.Add(Number(canvas, "Text", "Height", "Capital-letter height in drawing units.",
-                    text.Height,
-                    (copy, v) => { if (v <= 0) return false; ((SText)copy).Height = v; return true; }));
-
-                rows.Add(Number(canvas, "Text", "Rotation", "Rotation in degrees.",
-                    Degrees(text.Rotation),
-                    (copy, v) => { ((SText)copy).Rotation = Radians(v); return true; }));
+                AddTextSize(canvas, text, rows);
                 return;
 
             case SInsert insert:

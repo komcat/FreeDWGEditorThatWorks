@@ -73,7 +73,13 @@ public sealed class DwgSession
         header.DimensionDecimalPlaces = (short)iso.Decimals;
         header.DimensionScaleFactor = 1;
 
-        return new DwgSession(document, DwgLoader.Convert(document, new ImportDiagnostics()), null);
+        var drawing = DwgLoader.Convert(document, new ImportDiagnostics());
+
+        // A new drawing has said nothing about text yet, so its text follows
+        // the dimension text rather than the blank file's 2.5.
+        drawing.Text = default;
+
+        return new DwgSession(document, drawing, null);
     }
 
     /// <summary>

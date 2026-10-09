@@ -17,6 +17,7 @@ public partial class App : Application
         // And no font stack means no way to know that arialn.ttf is called
         // Arial Narrow. The importer asks; only the shell can answer.
         FontResolver.ResolveFile = WpfFonts.FamilyOf;
+        FontResolver.FileOf = WpfFonts.FileOf;
 
         base.OnStartup(e);
     }

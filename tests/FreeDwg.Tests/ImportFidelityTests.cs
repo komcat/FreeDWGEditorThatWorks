@@ -1,3 +1,4 @@
+using System.IO;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
@@ -183,5 +184,105 @@ public sealed class ImportFidelityTests
 
         Assert.Equal("Arial", Assert.Single(drawing.Entities.OfType<SText>()).FontFamily);
         Assert.Contains(file, diagnostics.FontSubstitutions.Keys);
+    }
+
+    /// <summary>
+    /// A typeface picked here survives a file: a style made the way AutoCAD
+    /// makes one -- the font file, and the face name with its bold and italic
+    /// in the ACAD xdata -- and read back from that xdata.
+    /// </summary>
+    /// <remarks>
+    /// In this class because it swaps the process-wide font hooks, and the
+    /// tests of one class run one after another.
+    /// </remarks>
+    [Fact]
+    public void AChosenTypefaceIsSavedAsAStyleAndReadBack()
+    {
+        FontResolver.ResolveFile = name =>
+            name.Equals("verdana.ttf", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Verdana", StringComparison.OrdinalIgnoreCase) ? "Verdana" : null;
+        FontResolver.FileOf = family => family == "Verdana" ? "verdana.ttf" : null;
+
+        string file = Path.Combine(Path.GetTempPath(), $"freedwg-font-{Guid.NewGuid():N}.dwg");
+        try
+        {
+            var session = DwgSession.CreateNew();
+            var drawing = session.Drawing;
+            var stack = new FreeDwg.Core.Commands.CommandStack(drawing);
+
+            var format = FreeDwg.Core.Tools.TextFormat.Default with { Height = 3, FontFamily = "Verdana", Bold = true };
+            var text = drawing.Place(FreeDwg.Core.Tools.TextTool.Make(new FreeDwg.Core.Geometry.Vec2(0, 0), ["Bold words"], format));
+            stack.Do(new FreeDwg.Core.Commands.AddEntities(drawing.ActiveLayout, text));
+            stack.Do(new FreeDwg.Core.Commands.ChangeTextSettings(new TextSettings(4, "Verdana", true, false)));
+
+            session.Save(stack, file);
+
+            var doc = ACadSharp.IO.DwgReader.Read(file);
+            var style = Assert.Single(doc.Entities.OfType<TextEntity>()).Style;
+            Assert.Equal("Verdana Bold", style.Name);
+            Assert.Equal("verdana.ttf", style.Filename);
+
+            var (face, flags) = FontResolver.FaceOf(style);
+            Assert.Equal("Verdana", face);
+            Assert.NotEqual(0, flags & FontResolver.BoldFlag);
+            Assert.Equal(0, flags & FontResolver.ItalicFlag);
+
+            Assert.Equal(4, doc.Header.TextHeightDefault);
+            Assert.Equal("Verdana Bold", doc.Header.CurrentTextStyleName);
+
+            var back = DwgLoader.Load(file);
+            var read = Assert.Single(back.ModelSpace.Entities.OfType<SText>());
+            Assert.Equal("Verdana", read.FontFamily);
+            Assert.True(read.Bold);
+            Assert.False(read.Italic);
+            Assert.Equal(new TextSettings(4, "Verdana", true, false), back.Text);
+        }
+        finally
+        {
+            FontResolver.ResolveFile = _ => null;
+            FontResolver.FileOf = _ => null;
+            File.Delete(file);
+        }
+    }
+
+    /// <summary>
+    /// A file saved without its text settings being touched gets no new text
+    /// style and keeps its current one -- even when its current style is a
+    /// TrueType face the machine can draw, which is when re-finding that face
+    /// by name would otherwise add a style nobody asked for.
+    /// </summary>
+    [Fact]
+    public void AnUntouchedSaveLeavesTheTextStylesAlone()
+    {
+        FontResolver.ResolveFile = name =>
+            name.Equals("verdana.ttf", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Verdana", StringComparison.OrdinalIgnoreCase) ? "Verdana" : null;
+        FontResolver.FileOf = family => family == "Verdana" ? "verdana.ttf" : null;
+
+        string file = Path.Combine(Path.GetTempPath(), $"freedwg-styles-{Guid.NewGuid():N}.dwg");
+        try
+        {
+            var doc = new CadDocument();
+            doc.TextStyles.Add(new TextStyle("Notes") { Filename = "verdana.ttf" });
+            doc.Header.CurrentTextStyleName = "Notes";
+            doc.Entities.Add(new Line(new CSMath.XYZ(0, 0, 0), new CSMath.XYZ(10, 0, 0)));
+            ACadSharp.IO.DwgWriter.Write(file, doc);
+            int styles = ACadSharp.IO.DwgReader.Read(file).TextStyles.Count;
+
+            var session = DwgSession.Open(file);
+            Assert.Equal("Verdana", session.Drawing.Text.FontFamily);
+            session.Save(new FreeDwg.Core.Commands.CommandStack(session.Drawing));
+
+            var back = ACadSharp.IO.DwgReader.Read(file);
+            Assert.Equal(styles, back.TextStyles.Count);
+            Assert.Equal("Notes", back.Header.CurrentTextStyleName);
+        }
+        finally
+        {
+            FontResolver.ResolveFile = _ => null;
+            FontResolver.FileOf = _ => null;
+            File.Delete(file);
+            File.Delete(Path.ChangeExtension(file, ".bak"));
+        }
     }
 }

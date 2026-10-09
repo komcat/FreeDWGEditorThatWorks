@@ -23,6 +23,13 @@ public enum CursorEntry
     /// </summary>
     Size,
 
+    /// <summary>
+    /// The words of text whose position has been picked. Not a number at
+    /// all, so it has a box of its own; but still the one answer to where
+    /// typing goes, which is why it is here.
+    /// </summary>
+    Text,
+
     /// <summary>The radius a fillet rounds a corner to.</summary>
     Radius,
 

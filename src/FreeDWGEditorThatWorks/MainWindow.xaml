@@ -212,8 +212,8 @@
                                          Tag="{StaticResource Icon.Point}" ToolTip="Point  -  POINT is not imported yet either" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Hatch}" ToolTip="Hatch  -  needs a boundary to be traced or found, which none of the draw tools do" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Text}" ToolTip="Text  -  needs an editor to type into on the canvas" />
+                            <RadioButton x:Name="TextButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
+                                         Tag="{StaticResource Icon.Text}" ToolTip="Text  -  click where it goes and type. Enter places it, Shift+Enter starts a new line. Double-click any text to edit it" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Block}" ToolTip="Insert block  -  needs a chooser for the definitions the drawing already holds" />
                         </UniformGrid>
@@ -444,6 +444,56 @@
                                  PreviewKeyDown="OnLengthKey" TextChanged="OnEntryTextChanged" />
                         <TextBlock x:Name="LengthUnit" Foreground="#FF9FB3C8" VerticalAlignment="Center"
                                    Margin="6,0,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!--
+                    Where text is typed. The words appear in the drawing at
+                    their real size as they are typed (the tool's preview),
+                    so this box only has to hold them, not show them off.
+                    AcceptsReturn so Shift+Enter makes a new line; a plain
+                    Enter is caught first and places the text.
+                -->
+                <Border x:Name="TextOverlay" Grid.Row="0" Visibility="Collapsed"
+                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Background="#F21E2530" BorderBrush="#FF5AAFFF" BorderThickness="1"
+                        CornerRadius="3" Padding="6,3" Panel.ZIndex="10">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="TextCaption" Text="Text" Foreground="#FF9FB3C8"
+                                       VerticalAlignment="Top" Margin="0,1,6,0" />
+                            <TextBox x:Name="TextEntryBox" MinWidth="180" MaxWidth="480" Background="Transparent"
+                                     Foreground="White" BorderThickness="0" CaretBrush="White"
+                                     AcceptsReturn="True" TextWrapping="NoWrap"
+                                     PreviewKeyDown="OnTextEntryKey" TextChanged="OnTextEntryChanged" />
+                        </StackPanel>
+
+                        <!--
+                            How the text looks, chosen while it is placed:
+                            typeface, bold, italic, height, turn and which
+                            point of it sits on the click. Each change shows
+                            in the drawing at once, and the keyboard goes
+                            back to the words afterwards.
+                        -->
+                        <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                            <ComboBox x:Name="TextFontBox" Width="150" SelectionChanged="OnTextFormatChanged"
+                                      ToolTip="Typeface. (Standard) is the drawing's own text style" />
+                            <ToggleButton x:Name="TextBoldToggle" Content="B" FontWeight="Bold" Width="24" Margin="4,0,0,0"
+                                          Click="OnTextFormatChanged" ToolTip="Bold" />
+                            <ToggleButton x:Name="TextItalicToggle" Content="I" FontStyle="Italic" Width="24" Margin="2,0,0,0"
+                                          Click="OnTextFormatChanged" ToolTip="Italic" />
+                            <TextBlock Text="H" Foreground="#FF9FB3C8" VerticalAlignment="Center" Margin="8,0,3,0" />
+                            <TextBox x:Name="TextHeightBox" Width="52" PreviewKeyDown="OnTextNumberKey"
+                                     LostKeyboardFocus="OnTextNumberLeft" ToolTip="Height of the capitals, in drawing units" />
+                            <TextBlock Text="&#x2220;" Foreground="#FF9FB3C8" VerticalAlignment="Center" Margin="8,0,3,0" />
+                            <TextBox x:Name="TextRotationBox" Width="40" PreviewKeyDown="OnTextNumberKey"
+                                     LostKeyboardFocus="OnTextNumberLeft" ToolTip="Rotation, in degrees counter-clockwise" />
+                            <ComboBox x:Name="TextJustifyBox" Width="118" Margin="8,0,0,0" SelectionChanged="OnTextFormatChanged"
+                                      ToolTip="Which point of the text sits on the click" />
+                        </StackPanel>
+
+                        <TextBlock Text="Enter to place   Shift+Enter new line   Esc to cancel"
+                                   Foreground="#FF7F8C99" FontSize="10" Margin="0,3,0,0" />
                     </StackPanel>
                 </Border>
 

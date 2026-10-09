@@ -10,7 +10,9 @@ using System.Windows.Input;
 using FreeDwg.Core.Commands;
 using FreeDwg.Core.Geometry;
 using FreeDwg.Core.Styling;
+using FreeDwg.Core.Rendering;
 using FreeDwg.Core.Scene;
+using FreeDwg.Core.Scene.Entities;
 using FreeDwg.Core.Snapping;
 using FreeDwg.Core.Tools;
 using FreeDwg.Core.Workspace;
@@ -98,7 +100,7 @@ public partial class MainWindow : Window
         _toolButtons =
         [
             SelectButton, LineButton, PolylineButton, RectangleButton,
-            CircleButton, ArcButton, EllipseButton,
+            CircleButton, ArcButton, EllipseButton, TextButton,
             DimensionButton, AlignedDimensionButton,
             RadiusDimensionButton, DiameterDimensionButton,
             MoveButton, CopyButton, RotateButton, ScaleButton, MirrorButton,
@@ -135,13 +137,25 @@ public partial class MainWindow : Window
             // for the point that has gone.
             _typedFirst = _typedSecond = false;
             SyncModeButtons();
+            UpdateTextOverlay();
             UpdateStatus();
             RebuildProperties();
             UpdateLengthOverlay();
         };
 
         Canvas.PendingPointChanged += (_, _) => UpdateLengthOverlay();
+
+        // The text box sits on the text, so it moves when the view does.
+        Canvas.ViewChanged += (_, _) => UpdateTextOverlay();
         Canvas.LengthTypingStarted += (_, typed) => StartTypingLength(typed);
+        Canvas.TextTypingStarted += (_, typed) =>
+        {
+            UpdateTextOverlay();
+            TextEntryBox.Focus();
+            TextEntryBox.SelectedText = typed;
+            TextEntryBox.CaretIndex = TextEntryBox.Text.Length;
+        };
+        Canvas.TextEditRequested += (_, text) => StartEditingText(text);
         Canvas.EntryFieldRequested += (_, _) =>
         {
             UpdateLengthOverlay();
@@ -234,6 +248,7 @@ public partial class MainWindow : Window
             nameof(CircleButton) => new CircleTool(),
             nameof(ArcButton) => new ArcTool(),
             nameof(EllipseButton) => new EllipseTool(),
+            nameof(TextButton) => new TextTool(),
             nameof(DimensionButton) => new LinearDimensionTool(),
             nameof(AlignedDimensionButton) => new AlignedDimensionTool(),
             nameof(RadiusDimensionButton) => new RadiusDimensionTool(),
@@ -301,6 +316,7 @@ public partial class MainWindow : Window
         CircleTool => CircleButton,
         ArcTool => ArcButton,
         EllipseTool => EllipseButton,
+        TextTool => TextButton,
         LinearDimensionTool => DimensionButton,
         AlignedDimensionTool => AlignedDimensionButton,
         RadiusDimensionTool => RadiusDimensionButton,
@@ -1427,6 +1443,255 @@ public partial class MainWindow : Window
         Canvas.PlaceSizedCorner();
         UpdateLengthOverlay();
     }
+
+    // ---- the text box ------------------------------------------------------
+
+    /// <summary>
+    /// Existing text being edited in the box, or null when the box belongs
+    /// to the text tool. One box, two jobs, and this says which.
+    /// </summary>
+    private SText? _editingText;
+
+    /// <summary>Set while the shell writes the box, so that is not mistaken for typing.</summary>
+    private bool _writingText;
+
+    /// <summary>
+    /// Shows the text box where the text is, or hides it. It opens empty,
+    /// with the keyboard, the moment the text tool has its point: typing is
+    /// the next thing that happens, and having to click into a box first
+    /// would be a step nobody expects.
+    /// </summary>
+    private void UpdateTextOverlay()
+    {
+        if (!_ready) return;
+
+        bool tool = Canvas.Entry == CursorEntry.Text;
+
+        if (!tool && _editingText is null)
+        {
+            if (TextOverlay.Visibility == Visibility.Visible)
+            {
+                TextOverlay.Visibility = Visibility.Collapsed;
+                SetTextBox("");
+                if (TextEntryBox.IsKeyboardFocusWithin) Canvas.Focus();
+            }
+            return;
+        }
+
+        var anchor = _editingText?.Position ?? Canvas.PendingFrom ?? Vec2.Zero;
+        var at = Canvas.Camera.WorldToScreen(anchor);
+
+        TextCaption.Text = _editingText is null ? "Text" : "Edit text";
+
+        // On the side the text is not growing towards, so the box never sits
+        // on the words it is showing: above text that hangs from its top,
+        // below text that stands on its baseline.
+        var hang = _editingText?.AnchorY ?? Canvas.TextJustification.Y;
+        double tall = TextOverlay.ActualHeight > 0 ? TextOverlay.ActualHeight : 72;
+        TextOverlay.Margin = hang is TextAnchorY.Top or TextAnchorY.Middle
+            ? new Thickness(at.X, Math.Max(0, at.Y - tall - 10), 0, 0)
+            : new Thickness(at.X, at.Y + 10, 0, 0);
+
+        if (TextOverlay.Visibility != Visibility.Visible)
+        {
+            ShowTextFormat(_editingFormat ?? Canvas.TextFormat);
+            TextOverlay.Visibility = Visibility.Visible;
+            Dispatcher.BeginInvoke(() => TextEntryBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+        }
+    }
+
+    /// <summary>
+    /// The look of the text being edited, held until Enter. Null while the
+    /// box belongs to the tool, whose look is the canvas's and the drawing's.
+    /// </summary>
+    private TextFormat? _editingFormat;
+
+    /// <summary>Puts a format into the row of controls under the words.</summary>
+    private void ShowTextFormat(TextFormat format)
+    {
+        _writingText = true;
+
+        TextFontBox.ItemsSource = TextChoices.Fonts(format.FontFamily);
+        TextFontBox.SelectedItem = TextChoices.FontName(format.FontFamily);
+        TextBoldToggle.IsChecked = format.Bold;
+        TextItalicToggle.IsChecked = format.Italic;
+        TextHeightBox.Text = PropertyRow.Number(format.Height);
+        TextRotationBox.Text = PropertyRow.Number(format.Rotation * 180 / Math.PI);
+        TextJustifyBox.ItemsSource = TextChoices.JustificationNames;
+        TextJustifyBox.SelectedItem = TextChoices.JustificationName(format.AnchorX, format.AnchorY);
+
+        _writingText = false;
+    }
+
+    /// <summary>
+    /// Reads the row of controls back as a format, keeping whatever of
+    /// <paramref name="current"/> a box holds nothing sensible for.
+    /// </summary>
+    private TextFormat ReadTextFormat(TextFormat current)
+    {
+        var format = current with
+        {
+            FontFamily = TextFontBox.SelectedItem is string font ? TextChoices.FamilyOf(font) : current.FontFamily,
+            Bold = TextBoldToggle.IsChecked == true,
+            Italic = TextItalicToggle.IsChecked == true,
+        };
+
+        if (Canvas.Drawing is { } drawing &&
+            Units.TryParseLength(TextHeightBox.Text, drawing.Units, out double height) && height > 0)
+            format = format with { Height = height };
+
+        if (PropertyRow.TryNumber(TextRotationBox.Text, out double degrees))
+            format = format with { Rotation = degrees * Math.PI / 180 };
+
+        if (TextJustifyBox.SelectedItem is string name && TextChoices.TryJustification(name, out var x, out var y))
+            format = format with { AnchorX = x, AnchorY = y };
+
+        return format;
+    }
+
+    /// <summary>
+    /// Applies the row: to the text being edited, held until Enter; or to the
+    /// tool, where the typeface and height are the drawing's -- an undoable
+    /// change that is saved -- and the turn and justification are the
+    /// canvas's, chosen per piece of text.
+    /// </summary>
+    private void ApplyTextFormat()
+    {
+        if (_editingText is not null)
+        {
+            _editingFormat = ReadTextFormat(_editingFormat ?? TextFormat.Of(_editingText));
+            return;
+        }
+
+        if (Canvas.Drawing is not { } drawing) return;
+
+        var format = ReadTextFormat(Canvas.TextFormat);
+        Canvas.TextRotation = format.Rotation;
+        Canvas.TextJustification = (format.AnchorX, format.AnchorY);
+
+        var settings = drawing.Text with { FontFamily = format.FontFamily, Bold = format.Bold, Italic = format.Italic };
+        if (Math.Abs(format.Height - Canvas.TextHeight) > 1e-12) settings = settings with { Height = format.Height };
+        Canvas.SetTextSettings(settings);
+
+        UpdateTextOverlay();
+    }
+
+    private void OnTextFormatChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready || _writingText || TextOverlay.Visibility != Visibility.Visible) return;
+
+        ApplyTextFormat();
+
+        // Back to the words: choosing a font is a pause in typing, not the end of it.
+        Dispatcher.BeginInvoke(() => TextEntryBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void OnTextNumberKey(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter:
+                // Takes the number, not the text: Enter here is the end of a
+                // height, and the words are still being written.
+                ApplyTextFormat();
+                TextEntryBox.Focus();
+                e.Handled = true;
+                return;
+
+            case Key.Escape:
+                ShowTextFormat(_editingFormat ?? Canvas.TextFormat);
+                TextEntryBox.Focus();
+                e.Handled = true;
+                return;
+        }
+    }
+
+    private void OnTextNumberLeft(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (_ready && !_writingText && TextOverlay.Visibility == Visibility.Visible) ApplyTextFormat();
+    }
+
+    private void SetTextBox(string text)
+    {
+        _writingText = true;
+        TextEntryBox.Text = text;
+        TextEntryBox.CaretIndex = text.Length;
+        _writingText = false;
+    }
+
+    /// <summary>The box's text as lines, however the line breaks arrived.</summary>
+    private IReadOnlyList<string> TypedLines() =>
+        TextEntryBox.Text.Replace("\r\n", "\n").Split('\n');
+
+    /// <summary>Opens the box on text that is already in the drawing, its words ready to change.</summary>
+    private void StartEditingText(SText text)
+    {
+        // A tool half way through something would be a second owner for the
+        // keyboard; editing happens from the pointer.
+        if (Canvas.Mode != CanvasMode.Select) Canvas.UseSelect();
+
+        _editingText = text;
+        _editingFormat = TextFormat.Of(text);
+        SetTextBox(string.Join(Environment.NewLine, text.Lines));
+        UpdateTextOverlay();
+        TextEntryBox.SelectAll();
+        StatusText.Text = "Edit text: Enter to keep the change, Shift+Enter for a new line, Escape to leave it as it was.";
+    }
+
+    private void StopEditingText()
+    {
+        _editingText = null;
+        _editingFormat = null;
+        UpdateTextOverlay();
+        Canvas.Focus();
+    }
+
+    private void OnTextEntryChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_ready || _writingText) return;
+
+        // The tool previews the words in the drawing as they are typed.
+        if (_editingText is null) Canvas.SetTypedText(TypedLines());
+    }
+
+    private void OnTextEntryKey(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            // Shift+Enter falls through to the box, which makes a new line.
+            case Key.Enter when !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift):
+                e.Handled = true;
+
+                if (_editingText is { } editing)
+                {
+                    if (Canvas.ReplaceText(editing, TypedLines(), _editingFormat)) StatusText.Text = "Text changed.";
+                    StopEditingText();
+                    return;
+                }
+
+                // The tool's own early finish, so the text goes in exactly as
+                // a polyline does when Enter ends it.
+                Canvas.SetTypedText(TypedLines());
+                Canvas.FinishTool();
+                Canvas.Focus();
+                return;
+
+            case Key.Escape:
+                e.Handled = true;
+
+                if (_editingText is not null)
+                {
+                    StopEditingText();
+                    return;
+                }
+
+                // The words and the point go; the tool stays, ready for the next.
+                Canvas.CancelCurrent();
+                Canvas.Focus();
+                return;
+        }
+    }
+
 
     private void OnZoomWindowToggled(object sender, RoutedEventArgs e)
     {

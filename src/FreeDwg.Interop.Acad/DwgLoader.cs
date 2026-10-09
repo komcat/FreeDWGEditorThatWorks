@@ -76,6 +76,79 @@ public static class DwgLoader
         return settings.IsValid ? settings : null;
     }
 
+    // How the file's text alignments read as the scene's anchors. Out here
+    // rather than in the converter because the writer asks the same question
+    // the other way round: has the anchor changed from what the file says?
+
+    internal static (TextAnchorX, TextAnchorY) AnchorFor(
+        TextHorizontalAlignment horizontal, TextVerticalAlignmentType vertical)
+    {
+        // Aligned and Fit stretch the text between two points; treated as
+        // left-aligned here, so such text is placed but not stretched.
+        TextAnchorX x = horizontal switch
+        {
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => TextAnchorX.Center,
+            TextHorizontalAlignment.Right => TextAnchorX.Right,
+            _ => TextAnchorX.Left,
+        };
+
+        TextAnchorY y = horizontal == TextHorizontalAlignment.Middle
+            ? TextAnchorY.Middle
+            : vertical switch
+            {
+                TextVerticalAlignmentType.Bottom => TextAnchorY.Bottom,
+                TextVerticalAlignmentType.Middle => TextAnchorY.Middle,
+                TextVerticalAlignmentType.Top => TextAnchorY.Top,
+                _ => TextAnchorY.Baseline,
+            };
+
+        return (x, y);
+    }
+
+    internal static (TextAnchorX, TextAnchorY) AnchorFor(AttachmentPointType attachment) => attachment switch
+    {
+        AttachmentPointType.TopLeft => (TextAnchorX.Left, TextAnchorY.Top),
+        AttachmentPointType.TopCenter => (TextAnchorX.Center, TextAnchorY.Top),
+        AttachmentPointType.TopRight => (TextAnchorX.Right, TextAnchorY.Top),
+        AttachmentPointType.MiddleLeft => (TextAnchorX.Left, TextAnchorY.Middle),
+        AttachmentPointType.MiddleCenter => (TextAnchorX.Center, TextAnchorY.Middle),
+        AttachmentPointType.MiddleRight => (TextAnchorX.Right, TextAnchorY.Middle),
+        AttachmentPointType.BottomLeft => (TextAnchorX.Left, TextAnchorY.Bottom),
+        AttachmentPointType.BottomCenter => (TextAnchorX.Center, TextAnchorY.Bottom),
+        AttachmentPointType.BottomRight => (TextAnchorX.Right, TextAnchorY.Bottom),
+        _ => (TextAnchorX.Left, TextAnchorY.Top),
+    };
+
+    /// <summary>
+    /// The height and typeface the file's next text takes: TEXTSIZE, and the
+    /// current text style when that is a TrueType font this machine can draw.
+    /// </summary>
+    /// <remarks>
+    /// An SHX style -- AutoCAD's own stroke fonts -- reads as no typeface at
+    /// all rather than as the outline font it is drawn with here, so text
+    /// placed in it is written back on that same style rather than moved to
+    /// a TrueType one nobody chose.
+    /// </remarks>
+    internal static TextSettings TextSettingsOf(ACadSharp.Header.CadHeader header, CadDocument document)
+    {
+        double? height = header.TextHeightDefault > 0 ? header.TextHeightDefault : null;
+
+        TextStyle? style = null;
+        try
+        {
+            if (document.TextStyles.TryGetValue(header.CurrentTextStyleName, out var current)) style = current;
+        }
+        catch (Exception) { }
+
+        if (style is null) return new TextSettings(height, null, false, false);
+
+        var fonts = new FontResolver();
+        var (family, bold, italic, _, _) = fonts.Resolve(style);
+        return fonts.Substitutions.Count > 0
+            ? new TextSettings(height, null, false, false)
+            : new TextSettings(height, family, bold, italic);
+    }
+
     internal static bool IsDxf(string path) =>
         string.Equals(Path.GetExtension(path), ".dxf", StringComparison.OrdinalIgnoreCase);
 
@@ -146,7 +219,11 @@ public static class DwgLoader
         public Drawing Run()
         {
             ConvertUnits();
-            if (_document.Header is { } header) _drawing.Dimensions = DimensionSettingsOf(header, _drawing.Units);
+            if (_document.Header is { } header)
+            {
+                _drawing.Dimensions = DimensionSettingsOf(header, _drawing.Units);
+                _drawing.Text = TextSettingsOf(header, _document);
+            }
 
             ConvertLinetypes();
             _styles = new StyleResolver(_linetypeByHandle, _document.Header?.LineTypeScale ?? 1.0);
@@ -683,45 +760,6 @@ public static class DwgLoader
                 Italic = italic,
             };
         }
-
-        private static (TextAnchorX, TextAnchorY) AnchorFor(
-            TextHorizontalAlignment horizontal, TextVerticalAlignmentType vertical)
-        {
-            // Aligned and Fit stretch the text between two points; treated as
-            // left-aligned here, so such text is placed but not stretched.
-            TextAnchorX x = horizontal switch
-            {
-                TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => TextAnchorX.Center,
-                TextHorizontalAlignment.Right => TextAnchorX.Right,
-                _ => TextAnchorX.Left,
-            };
-
-            TextAnchorY y = horizontal == TextHorizontalAlignment.Middle
-                ? TextAnchorY.Middle
-                : vertical switch
-                {
-                    TextVerticalAlignmentType.Bottom => TextAnchorY.Bottom,
-                    TextVerticalAlignmentType.Middle => TextAnchorY.Middle,
-                    TextVerticalAlignmentType.Top => TextAnchorY.Top,
-                    _ => TextAnchorY.Baseline,
-                };
-
-            return (x, y);
-        }
-
-        private static (TextAnchorX, TextAnchorY) AnchorFor(AttachmentPointType attachment) => attachment switch
-        {
-            AttachmentPointType.TopLeft => (TextAnchorX.Left, TextAnchorY.Top),
-            AttachmentPointType.TopCenter => (TextAnchorX.Center, TextAnchorY.Top),
-            AttachmentPointType.TopRight => (TextAnchorX.Right, TextAnchorY.Top),
-            AttachmentPointType.MiddleLeft => (TextAnchorX.Left, TextAnchorY.Middle),
-            AttachmentPointType.MiddleCenter => (TextAnchorX.Center, TextAnchorY.Middle),
-            AttachmentPointType.MiddleRight => (TextAnchorX.Right, TextAnchorY.Middle),
-            AttachmentPointType.BottomLeft => (TextAnchorX.Left, TextAnchorY.Bottom),
-            AttachmentPointType.BottomCenter => (TextAnchorX.Center, TextAnchorY.Bottom),
-            AttachmentPointType.BottomRight => (TextAnchorX.Right, TextAnchorY.Bottom),
-            _ => (TextAnchorX.Left, TextAnchorY.Top),
-        };
 
         private static SArc ConvertArc(AcadArc arc)
         {

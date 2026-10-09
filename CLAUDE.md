@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 722 tests, ~1s
+dotnet test                 # 737 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -225,6 +225,15 @@ with no WPF and no parser present. Do not add either reference to Core.
   reported*; silently handing WPF a family nobody has is a drawing in the
   wrong typeface with a status bar saying nothing. Extension-less `TXT`,
   `SIMPLEX` and `romanc` are SHX, not TrueType.
+- **A TrueType style's face, bold and italic live in its ACAD xdata**
+  (1000 face name, 1071 flags: bold `0x2000000`, italic `0x1000000`), not in
+  the style's fields -- ACadSharp neither reads nor writes them. The reader
+  looks there (`FontResolver.FaceOf`) and the writer makes styles that way,
+  with the file from the shell's `FontResolver.FileOf`. New text's height and
+  typeface are `Drawing.Text` (TEXTSIZE and the current style), changed by
+  `ChangeTextSettings`; the header is written only where it differs from what
+  the file already says, or an untouched save would add a style and switch to
+  it. Rotation and justification are per piece of text, on the canvas.
 - **Culling and picking go through `Layout.Index`,** a BVH. It answers with
   positions into the entity list and callers sort them, because entity order
   is painting order.

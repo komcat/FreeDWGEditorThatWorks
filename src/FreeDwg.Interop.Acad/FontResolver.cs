@@ -1,4 +1,5 @@
 using ACadSharp.Tables;
+using ACadSharp.XData;
 
 namespace FreeDwg.Interop.Acad;
 
@@ -43,6 +44,47 @@ public sealed class FontResolver
     /// </remarks>
     public static Func<string, string?> ResolveFile { get; set; } = _ => null;
 
+    /// <summary>
+    /// The inverse: the file a family is installed as, for a style written
+    /// here, or null when the machine has no such font. Installed by the
+    /// shell alongside <see cref="ResolveFile"/>.
+    /// </summary>
+    public static Func<string, string?> FileOf { get; set; } = _ => null;
+
+    /// <summary>The application id AutoCAD files a TrueType style's face name and flags under.</summary>
+    public const string AcadAppId = "ACAD";
+
+    /// <summary>Bold and italic, as they sit in the flags AutoCAD keeps beside the face name.</summary>
+    public const int BoldFlag = 0x2000000, ItalicFlag = 0x1000000;
+
+    /// <summary>
+    /// The face name and flags AutoCAD writes on a TrueType style, if this
+    /// one carries them.
+    /// </summary>
+    /// <remarks>
+    /// AutoCAD keeps the family it means -- "Arial", not "arial.ttf" -- and
+    /// its bold and italic in the style's xdata, not in the style's own
+    /// fields. ACadSharp reads the fields and leaves the xdata alone, so a
+    /// bold style from a file reads as regular unless it is looked for here.
+    /// </remarks>
+    public static (string? Face, int Flags) FaceOf(TextStyle style)
+    {
+        if (!style.ExtendedData.TryGet(AcadAppId, out var data)) return (null, 0);
+
+        string? face = null;
+        int flags = 0;
+        foreach (var record in data.Records)
+        {
+            switch (record)
+            {
+                case ExtendedDataString text when face is null: face = text.Value; break;
+                case ExtendedDataInteger32 number: flags = number.Value; break;
+            }
+        }
+
+        return (string.IsNullOrWhiteSpace(face) ? null : face, flags);
+    }
+
     private readonly Dictionary<string, string> _substituted = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Styles whose font was not available, mapped to what was drawn instead.</summary>
@@ -53,11 +95,14 @@ public sealed class FontResolver
         if (style is null)
             return (ShxSubstitute, false, false, 1.0, 0.0);
 
-        bool bold = style.TrueType.HasFlag(FontFlags.Bold);
-        bool italic = style.TrueType.HasFlag(FontFlags.Italic);
+        var (face, flags) = FaceOf(style);
+        bool bold = style.TrueType.HasFlag(FontFlags.Bold) || (flags & BoldFlag) != 0;
+        bool italic = style.TrueType.HasFlag(FontFlags.Italic) || (flags & ItalicFlag) != 0;
         double width = style.Width > 0 ? style.Width : 1.0;
 
-        string family = FamilyFor(style);
+        // The face name, where the style has one and the machine has it, is
+        // the family meant; the file is only how to find it.
+        string family = face is not null && ResolveFile(face) is { Length: > 0 } named ? named : FamilyFor(style);
         return (family, bold, italic, width, style.ObliqueAngle);
     }
 

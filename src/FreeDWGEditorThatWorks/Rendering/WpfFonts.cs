@@ -71,6 +71,52 @@ public static class WpfFonts
             .FirstOrDefault(name => name.Equals(file, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static readonly Lazy<Dictionary<string, string>> FilesByFamily = new(() =>
+    {
+        // Upright, normal-weight faces first, so "Arial" finds arial.ttf
+        // rather than whichever of its bold or italic siblings sorts first.
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var candidates = Folders.Value
+            .SelectMany(folder => Directory.EnumerateFiles(folder))
+            .Where(path => Path.GetExtension(path).ToLowerInvariant() is ".ttf" or ".otf" or ".ttc");
+
+        foreach (var (path, family, regular) in candidates.Select(Describe).Where(d => d.Family is not null)
+                     .OrderByDescending(d => d.Regular))
+        {
+            map.TryAdd(family!, Path.GetFileName(path));
+        }
+
+        return map;
+
+        static (string Path, string? Family, bool Regular) Describe(string path)
+        {
+            try
+            {
+                var typeface = new GlyphTypeface(new Uri(path));
+                bool regular = typeface.Weight == System.Windows.FontWeights.Normal &&
+                               typeface.Style == System.Windows.FontStyles.Normal;
+                return (path, typeface.Win32FamilyNames.Values.FirstOrDefault()
+                              ?? typeface.FamilyNames.Values.FirstOrDefault(), regular);
+            }
+            catch
+            {
+                return (path, null, false);
+            }
+        }
+    });
+
+    /// <summary>
+    /// The file a family is installed as -- "Arial" to arial.ttf -- or null.
+    /// The inverse of <see cref="FamilyOf"/>, for a text style written here:
+    /// a DWG names a file, so a style has to have one.
+    /// </summary>
+    /// <remarks>
+    /// Built once, by opening every font file there is; that is a second or
+    /// so, paid at the first save that needs it rather than at start-up.
+    /// </remarks>
+    public static string? FileOf(string family) =>
+        FilesByFamily.Value.TryGetValue(family, out string? file) ? file : null;
+
     private static string? FamilyIn(string path)
     {
         try

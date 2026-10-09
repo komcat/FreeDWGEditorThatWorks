@@ -254,6 +254,80 @@ public sealed class CadCanvas : FrameworkElement
         set => SetCornerSize(ref _chamferDistance, value);
     }
 
+    /// <summary>
+    /// How tall new text is. Until it is set it follows the dimension text,
+    /// so annotation comes out one size without anyone having to say so --
+    /// and follows the units and the dimension style with it.
+    /// </summary>
+    /// <remarks>
+    /// The drawing's, not the canvas's: it is the file's TEXTSIZE. Setting it
+    /// goes through the command stack, like the typeface beside it.
+    /// </remarks>
+    public double TextHeight
+    {
+        get => _drawing?.Text.Height ?? DimensionStyle.TextHeight;
+        set
+        {
+            if (value <= 0 || _drawing is null) return;
+            SetTextSettings(_drawing.Text with { Height = value });
+        }
+    }
+
+    /// <summary>Whether <see cref="TextHeight"/> is still following the dimension text.</summary>
+    public bool TextHeightFollowsDimensions => _drawing?.Text.Height is null;
+
+    private double _textRotation;
+    private TextAnchorX _textAnchorX = TextAnchorX.Left;
+    private TextAnchorY _textAnchorY = TextAnchorY.Top;
+
+    /// <summary>
+    /// The turn new text is placed at, in radians. Chosen per piece of text,
+    /// in AutoCAD as here, so it is the canvas's and is not saved.
+    /// </summary>
+    public double TextRotation
+    {
+        get => _textRotation;
+        set
+        {
+            _textRotation = value;
+            ApplyToolSettings();
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Which point of new text sits on the click. Per piece of text, like the turn.</summary>
+    public (TextAnchorX X, TextAnchorY Y) TextJustification
+    {
+        get => (_textAnchorX, _textAnchorY);
+        set
+        {
+            (_textAnchorX, _textAnchorY) = value;
+            ApplyToolSettings();
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>Everything new text is placed with, from the drawing and from the canvas.</summary>
+    public TextFormat TextFormat => new(
+        TextHeight, _textRotation, _textAnchorX, _textAnchorY,
+        _drawing?.Text.FontFamily, _drawing?.Text.Bold == true, _drawing?.Text.Italic == true);
+
+    /// <summary>
+    /// Changes the height and typeface new text takes, as an undoable step;
+    /// a text tool in hand redraws in them at once.
+    /// </summary>
+    public bool SetTextSettings(TextSettings settings)
+    {
+        if (_drawing is null || Commands is null || settings == _drawing.Text) return false;
+        if (settings.Height is <= 0) return false;
+
+        Commands.Do(new ChangeTextSettings(settings));
+        ApplyToolSettings();
+        InvalidateVisual();
+        RaiseDrawingEdited();
+        return true;
+    }
+
     private double _filletRadius;
     private double _chamferDistance;
 
@@ -292,6 +366,7 @@ public sealed class CadCanvas : FrameworkElement
         else if (_tool is FilletTool fillet) fillet.Radius = _filletRadius;
 
         if (_tool is DimensionTool dimension) dimension.Sizes = DimensionStyle;
+        if (_tool is TextTool text) text.Format = TextFormat;
     }
 
     /// <summary>
@@ -396,7 +471,10 @@ public sealed class CadCanvas : FrameworkElement
         get
         {
             if (PendingFrom is not null)
-                return _heldGrip is null && _tool is RectangleTool ? CursorEntry.Size : CursorEntry.Length;
+                return _heldGrip is not null ? CursorEntry.Length
+                    : _tool is RectangleTool ? CursorEntry.Size
+                    : _tool is TextTool ? CursorEntry.Text
+                    : CursorEntry.Length;
 
             return _tool switch
             {
@@ -671,6 +749,15 @@ public sealed class CadCanvas : FrameworkElement
     /// can open its box on the first field without anything typed yet.
     /// </summary>
     public event EventHandler? EntryFieldRequested;
+
+    /// <summary>
+    /// Fires when a character is typed at the canvas while text is waiting
+    /// for its words, so the shell's box can take the keyboard and the key.
+    /// </summary>
+    public event EventHandler<string>? TextTypingStarted;
+
+    /// <summary>Fires when text is double-clicked, so the shell can open its editor on it.</summary>
+    public event EventHandler<SText>? TextEditRequested;
 
     /// <summary>Fires after the drawing is edited, so the shell can refresh counts.</summary>
     public event EventHandler? DrawingEdited;
@@ -1083,6 +1170,21 @@ public sealed class CadCanvas : FrameworkElement
             return;
         }
 
+        // Double-clicking text opens it for editing, which is what every
+        // program that shows text does. The first click of the two has
+        // already selected it.
+        if (Mode == CanvasMode.Select && e.ChangedButton == MouseButton.Left && e.ClickCount == 2)
+        {
+            Point clicked = e.GetPosition(this);
+            if (Picker.At(_drawing, Camera.ScreenToWorld(new Vec2(clicked.X, clicked.Y)), PickTolerance) is SText text)
+            {
+                AbandonGesture();
+                TextEditRequested?.Invoke(this, text);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.ChangedButton == MouseButton.Left)
         {
             Point pressed = e.GetPosition(this);
@@ -1239,6 +1341,15 @@ public sealed class CadCanvas : FrameworkElement
         base.OnTextInput(e);
 
         if (e.Text.Length == 0 || Entry == CursorEntry.None) return;
+
+        // Text takes every character, not only the ones a number starts with.
+        if (Entry == CursorEntry.Text)
+        {
+            TextTypingStarted?.Invoke(this, e.Text);
+            e.Handled = true;
+            return;
+        }
+
         if (!char.IsAsciiDigit(e.Text[0]) && e.Text[0] != '.') return;
 
         LengthTypingStarted?.Invoke(this, e.Text);
@@ -1852,6 +1963,72 @@ public sealed class CadCanvas : FrameworkElement
         UseSelect();
         request?.TrySetResult(point);
         return true;
+    }
+
+    /// <summary>
+    /// Hands the text tool what has been typed so far, for its preview.
+    /// The shell's box owns the keyboard; the canvas only draws the result.
+    /// </summary>
+    public void SetTypedText(IReadOnlyList<string> lines)
+    {
+        if (_tool is not TextTool { InProgress: true } text) return;
+
+        text.Lines = lines;
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// What Escape does on the canvas, for a box that has the keyboard and
+    /// wants the same answer: the most recent thing started is taken back.
+    /// </summary>
+    public void CancelCurrent() => CancelWhateverIsHappening();
+
+    /// <summary>
+    /// Rewrites the words of existing text, as one undoable step that keeps
+    /// the handle the file knows it by.
+    /// </summary>
+    /// <remarks>
+    /// Text that grows from one line to several becomes MTEXT when saved,
+    /// and MTEXT hangs from its top. One placed on its baseline is moved to
+    /// a top anchor first, keeping its first line exactly where it was, so
+    /// it reads the same here and after it has been through a file.
+    /// </remarks>
+    public bool ReplaceText(SText original, IReadOnlyList<string> lines, TextFormat? format = null)
+    {
+        lines = TextTool.Trimmed(lines);
+        if (!lines.Any(line => !string.IsNullOrWhiteSpace(line))) return false;
+
+        var look = format ?? TextFormat.Of(original);
+        if (lines.SequenceEqual(original.Lines) && look == TextFormat.Of(original)) return false;
+
+        var copy = (SText)original.Clone();
+        copy.Lines = lines.ToArray();
+
+        // The point stays where it is and the text arranges itself round it:
+        // a new justification says which part of the text sits on the point.
+        if (look.Height != copy.Height) copy.LineStep *= look.Height / copy.Height;
+        copy.Height = look.Height;
+        copy.Rotation = look.Rotation;
+        copy.AnchorX = look.AnchorX;
+        copy.AnchorY = look.AnchorY;
+        copy.FontFamily = look.FontFamily;
+        copy.Bold = look.Bold;
+        copy.Italic = look.Italic;
+
+        if (lines.Count > 1)
+        {
+            if (copy.LineStep <= copy.Height) copy.LineStep = copy.Height * TextTool.LineSpacing;
+
+            if (copy.AnchorY == TextAnchorY.Baseline)
+            {
+                var up = new Vec2(-Math.Sin(copy.Rotation), Math.Cos(copy.Rotation));
+                copy.Position += up * copy.Height;
+                copy.AnchorY = TextAnchorY.Top;
+            }
+        }
+
+        copy.InvalidateBounds();
+        return ApplyEdits([(original, copy)], "Edit text");
     }
 
     /// <summary>

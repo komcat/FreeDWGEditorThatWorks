@@ -1,6 +1,7 @@
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
+using ACadSharp.XData;
 using CSMath;
 using FreeDwg.Core.Commands;
 using FreeDwg.Core.Geometry;
@@ -714,7 +715,23 @@ internal sealed class SceneWriter
 
     private Outcome WriteText(SText text, TextEntity target)
     {
-        bool changed = false;
+        // TEXT is one line by definition. Text edited into several becomes
+        // MTEXT, as AutoCAD would have had to make it; gluing the lines into
+        // one would quietly lose the breaks.
+        if (text.Lines.Count > 1) return Outcome.Incompatible;
+
+        bool changed = WriteFont(target, text);
+
+        // A new justification: which part of the text sits on its point. The
+        // point itself is the scene's, so both of DWG's go there; AutoCAD
+        // works the insertion point out again from the alignment point.
+        if (DwgLoader.AnchorFor(target.HorizontalAlignment, target.VerticalAlignment) != (text.AnchorX, text.AnchorY))
+        {
+            (target.HorizontalAlignment, target.VerticalAlignment) = TextFactory.TextAlignmentFor(text.AnchorX, text.AnchorY);
+            target.InsertPoint = ToXYZ(text.Position);
+            target.AlignmentPoint = ToXYZ(text.Position);
+            changed = true;
+        }
 
         // DWG switches the anchor to the alignment point as soon as text is
         // anything but left-baseline; the reader follows it, so must this.
@@ -758,7 +775,13 @@ internal sealed class SceneWriter
 
     private Outcome WriteMText(SText text, MText target)
     {
-        bool changed = false;
+        bool changed = WriteFont(target, text);
+
+        if (DwgLoader.AnchorFor(target.AttachmentPoint) != (text.AnchorX, text.AnchorY))
+        {
+            target.AttachmentPoint = TextFactory.AttachmentFor(text.AnchorX, text.AnchorY);
+            changed = true;
+        }
         double height = DrawnHeight(target.Height, target.Style);
 
         if (!Near(target.InsertPoint, text.Position) || !SameAngle(target.Rotation, text.Rotation) ||
@@ -1016,8 +1039,16 @@ internal sealed class SceneWriter
             }
 
             case SText text:
-                return TextFactory.Build(text.Lines, text.Position, text.Height, ArcMath.Normalize(text.Rotation),
+            {
+                var file = TextFactory.Build(text.Lines, text.Position, text.Height, ArcMath.Normalize(text.Rotation),
                     text.AnchorX, text.AnchorY, text.WidthFactor, text.LineStep, text.WrapWidth);
+
+                // No typeface of its own: the drawing's current text style,
+                // which is what AutoCAD would have placed it in.
+                if (text.FontFamily is null && CurrentTextStyle() is { } current) SetStyle(file, current);
+                else WriteFont(file, text);
+                return file;
+            }
 
             case SInsert insert:
             {
@@ -1153,6 +1184,98 @@ internal sealed class SceneWriter
         return map;
     });
 
+    // ---- text styles -------------------------------------------------------
+
+    private readonly FontResolver _fonts = new();
+
+    private TextStyle? CurrentTextStyle() =>
+        _doc.TextStyles.TryGetValue(_doc.Header.CurrentTextStyleName, out var style) ? style : null;
+
+    private static TextStyle? StyleOf(Entity text) => text switch
+    {
+        TextEntity t => t.Style,
+        MText m => m.Style,
+        _ => null,
+    };
+
+    private static void SetStyle(Entity text, TextStyle style)
+    {
+        if (text is TextEntity t) t.Style = style;
+        else if (text is MText m) m.Style = style;
+    }
+
+    /// <summary>
+    /// Puts text on a style in its typeface, if it has one of its own and is
+    /// not already in it. Text with no typeface keeps whatever style it has.
+    /// </summary>
+    private bool WriteFont(Entity file, SText text)
+    {
+        if (text.FontFamily is not { } family) return false;
+
+        var (current, bold, italic, _, _) = _fonts.Resolve(StyleOf(file));
+        if (string.Equals(current, family, StringComparison.OrdinalIgnoreCase) &&
+            bold == text.Bold && italic == text.Italic)
+            return false;
+
+        SetStyle(file, TextStyleFor(family, text.Bold, text.Italic));
+        return true;
+    }
+
+    /// <summary>
+    /// A text style in a TrueType typeface: found if the file has one that
+    /// draws exactly that, made if not.
+    /// </summary>
+    /// <remarks>
+    /// Made the way AutoCAD makes one, so AutoCAD draws it the same: the font
+    /// file, and the face name with its bold and italic flags in the style's
+    /// ACAD xdata -- which is where AutoCAD keeps them, rather than in the
+    /// style's own fields. A style that draws the face at a fixed height is
+    /// not reused, or the text would come out its height rather than its own.
+    /// </remarks>
+    private TextStyle TextStyleFor(string family, bool bold, bool italic)
+    {
+        string wanted = family + (bold ? " Bold" : "") + (italic ? " Italic" : "");
+
+        for (int n = 1; ; n++)
+        {
+            string name = n == 1 ? wanted : $"{wanted} {n}";
+            if (!_doc.TextStyles.TryGetValue(name, out var existing)) return MakeTextStyle(name, family, bold, italic);
+
+            var (face, b, i, _, _) = _fonts.Resolve(existing);
+            if (existing.Height == 0 && b == bold && i == italic &&
+                string.Equals(face, family, StringComparison.OrdinalIgnoreCase))
+                return existing;
+        }
+    }
+
+    private TextStyle MakeTextStyle(string name, string family, bool bold, bool italic)
+    {
+        var style = new TextStyle(name)
+        {
+            Filename = FontResolver.FileOf(family) ?? family,
+            TrueType = (bold ? FontFlags.Bold : 0) | (italic ? FontFlags.Italic : 0),
+        };
+
+        _doc.TextStyles.Add(style);
+
+        if (!_doc.AppIds.TryGetValue(FontResolver.AcadAppId, out var app))
+        {
+            app = new AppId(FontResolver.AcadAppId);
+            _doc.AppIds.Add(app);
+        }
+
+        // 0x22 is variable pitch, Swiss family -- what AutoCAD writes for an
+        // ordinary sans serif -- with the bold and italic bits above it.
+        int flags = 0x22 | (bold ? FontResolver.BoldFlag : 0) | (italic ? FontResolver.ItalicFlag : 0);
+        style.ExtendedData.Add(app, new ExtendedDataRecord[]
+        {
+            new ExtendedDataString(family),
+            new ExtendedDataInteger32(flags),
+        });
+
+        return style;
+    }
+
     // ---- header ------------------------------------------------------------
 
     private void SyncHeader()
@@ -1168,6 +1291,7 @@ internal sealed class SceneWriter
             header.CurrentLayerName = current.Name;
 
         SyncDimensionSettings(header);
+        SyncTextSettings(header);
     }
 
     /// <summary>
@@ -1181,6 +1305,33 @@ internal sealed class SceneWriter
     /// the next time AutoCAD regenerates them, which is what the dialog's own
     /// "apply to existing" box is for, and only when it is ticked.
     /// </remarks>
+    /// <summary>
+    /// TEXTSIZE and the current text style, so the file's next text comes
+    /// out the way the drawing's did. A height still following the dimension
+    /// text is written as the number it follows, which is what it is now.
+    /// </summary>
+    private void SyncTextSettings(ACadSharp.Header.CadHeader header)
+    {
+        var text = _drawing.Text;
+        double height = text.Height ?? FreeDwg.Core.Scene.DimensionStyle.For(_drawing).TextHeight;
+
+        if (height > 0 && !Near(header.TextHeightDefault, height)) header.TextHeightDefault = height;
+
+        // Only a typeface the drawing has been given that the file does not
+        // already say: re-finding the current style's own font on every save
+        // would add a style and switch to it in a file nobody touched.
+        var fromFile = DwgLoader.TextSettingsOf(header, _doc);
+        bool sameFace = string.Equals(fromFile.FontFamily, text.FontFamily, StringComparison.OrdinalIgnoreCase) &&
+                        fromFile.Bold == text.Bold && fromFile.Italic == text.Italic;
+
+        if (!sameFace && text.FontFamily is { } family)
+        {
+            var style = TextStyleFor(family, text.Bold, text.Italic);
+            if (!string.Equals(header.CurrentTextStyleName, style.Name, StringComparison.OrdinalIgnoreCase))
+                header.CurrentTextStyleName = style.Name;
+        }
+    }
+
     private void SyncDimensionSettings(ACadSharp.Header.CadHeader header)
     {
         if (_drawing.Dimensions is not { IsValid: true } settings) return;

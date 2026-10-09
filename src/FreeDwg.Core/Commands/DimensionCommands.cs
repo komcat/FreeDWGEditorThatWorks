@@ -77,3 +77,33 @@ public sealed class ChangeDimensionSettings : IEditCommand
     public static int CountRestylable(Drawing drawing) =>
         drawing.Layouts.Sum(layout => layout.Entities.OfType<SDimension>().Count());
 }
+
+/// <summary>
+/// Changes the height and typeface new text is placed with.
+/// </summary>
+/// <remarks>
+/// A command for the reasons <see cref="ChangeDimensionSettings"/> is one:
+/// it is undoable, it marks the drawing modified, and a save writes it --
+/// to TEXTSIZE and the current text style -- so changing it is a change to
+/// the file. Like that one it names no handle: the header is brought into
+/// line on every save by comparison.
+/// </remarks>
+public sealed class ChangeTextSettings : IEditCommand
+{
+    private readonly TextSettings _after;
+    private TextSettings _before;
+
+    public ChangeTextSettings(TextSettings settings) => _after = settings;
+
+    public string Name => "Text style";
+
+    public void Apply(Drawing drawing)
+    {
+        _before = drawing.Text;
+        drawing.Text = _after;
+    }
+
+    public void Undo(Drawing drawing) => drawing.Text = _before;
+
+    public void Describe(ChangeLog log) { }
+}

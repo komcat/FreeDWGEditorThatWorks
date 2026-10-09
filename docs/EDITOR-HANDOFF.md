@@ -69,8 +69,8 @@ the editor phase.
 | — | `19afc05` | layer groups, kept in a file beside the drawing |
 | E5 | — | **save: delta-applied onto the original document, DWG and DXF** |
 
-E1, E2 and E3 are done. E4 is done but for polygon, text, hatch, spline,
-block insertion, offset and explode; array is done (rectangular and polar). E5's first pass is done; its gaps
+E1, E2 and E3 are done. E4 is done but for polygon, hatch, spline,
+block insertion, offset and explode; array (rectangular and polar) and text (placed on the canvas, edited by double-click) are done. E5's first pass is done; its gaps
 are listed under E5 below.
 
 Dimensions and layer editing arrived after the milestone list was written and
@@ -677,7 +677,7 @@ and rotating them with the last segment would take that away. That is a
 deliberate divergence from AutoCAD, which applies one setting to both.
 
 Still to do, and still dark in the palette: polygon, which needs somewhere to
-ask for a side count; text, which needs an editor; hatch and block insertion,
+ask for a side count; hatch and block insertion,
 which need a boundary and a definition chooser respectively; spline; offset,
 which needs real curve offsetting;
 and explode, which is what trim and extend are waiting on for polylines.

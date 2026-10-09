@@ -61,6 +61,13 @@ public sealed class Drawing
     public DimensionSettings? Dimensions { get; set; }
 
     /// <summary>
+    /// The height and typeface new text takes. Read from the file's TEXTSIZE
+    /// and current text style, written back on save, and changed through
+    /// <c>ChangeTextSettings</c> like every other edit.
+    /// </summary>
+    public TextSettings Text { get; set; }
+
+    /// <summary>
     /// The layer new entities are created on. Index into <see cref="Layers"/>;
     /// out of range reads as layer 0, which is the one every DWG has.
     /// </summary>
