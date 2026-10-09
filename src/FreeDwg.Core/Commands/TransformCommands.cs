@@ -99,3 +99,56 @@ public sealed class CopyEntities : IEditCommand
         foreach (var copy in _copies) log.Added(copy);
     }
 }
+
+/// <summary>
+/// Many copies of the selection at once, each under its own transform: the
+/// command behind array.
+/// </summary>
+/// <remarks>
+/// One command rather than a copy per item, so a thirty-item array is one
+/// press of undo. Every copy is a clone, so it carries no handle and is a
+/// new object to a save -- and remembers what it was copied from, which is
+/// how a copied hatch keeps its pattern in the file.
+/// </remarks>
+public sealed class ArrayEntities : IEditCommand
+{
+    private readonly Layout _layout;
+    private readonly SceneEntity[] _copies;
+
+    public ArrayEntities(Layout layout, IEnumerable<SceneEntity> entities, IEnumerable<Mat3> transforms, string name)
+    {
+        _layout = layout;
+
+        var originals = entities.ToArray();
+        _copies = transforms
+            .SelectMany(transform => originals.Select(entity =>
+            {
+                var copy = entity.Clone();
+                copy.Transform(transform);
+                return copy;
+            }))
+            .ToArray();
+
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    /// <summary>The new entities, so the shell can leave the whole array selected.</summary>
+    public IReadOnlyList<SceneEntity> Copies => _copies;
+
+    public void Apply(Drawing drawing)
+    {
+        foreach (var copy in _copies) _layout.Add(copy);
+    }
+
+    public void Undo(Drawing drawing)
+    {
+        for (int i = _copies.Length - 1; i >= 0; i--) _layout.Remove(_copies[i]);
+    }
+
+    public void Describe(ChangeLog log)
+    {
+        foreach (var copy in _copies) log.Added(copy);
+    }
+}

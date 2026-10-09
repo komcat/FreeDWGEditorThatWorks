@@ -79,6 +79,12 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     private double? _lockedWidth, _lockedHeight;
 
+    /// <summary>Whoever is waiting on a point, while the mode is <see cref="CanvasMode.PickPoint"/>.</summary>
+    private TaskCompletionSource<Vec2?>? _pointRequest;
+    private string? _pointPrompt;
+
+    private IReadOnlyList<Mat3>? _arrayPreview;
+
     /// <summary>How far a click may miss by, in device pixels.</summary>
     private const double PickRadiusPixels = 6.0;
 
@@ -316,14 +322,22 @@ public sealed class CadCanvas : FrameworkElement
         _tool?.Cancel();
         AbandonGesture();
 
+        // A point asked for and not given is an answer too: whoever is
+        // waiting hears "none" rather than waiting for ever.
+        var request = _pointRequest;
+        _pointRequest = null;
+        request?.TrySetResult(null);
+
         _tool = tool;
         Mode = mode;
         ClearSizeLocks();
 
         // Drawing and selecting are different modes, and carrying a selection
         // into a draw tool only makes the next Delete a surprise. A modify
-        // tool is the exception: the selection is what it acts on.
-        if (mode != CanvasMode.Select && tool?.NeedsSelection != true) Selection.Clear();
+        // tool is the exception: the selection is what it acts on, and so is
+        // a point picked for something about to happen to it.
+        if (mode is not (CanvasMode.Select or CanvasMode.PickPoint) && tool?.NeedsSelection != true)
+            Selection.Clear();
 
         _snap = default;
 
@@ -353,7 +367,7 @@ public sealed class CadCanvas : FrameworkElement
     /// </summary>
     public string? ToolPrompt => _heldGrip is not null
         ? "Grip: pick where it goes, or type a distance"
-        : _tool?.Prompt;
+        : Mode == CanvasMode.PickPoint ? _pointPrompt : _tool?.Prompt;
 
     /// <summary>Pick tolerance in world units at the current zoom.</summary>
     public double PickTolerance => Camera.Scale > 0 ? PickRadiusPixels / Camera.Scale : 0;
@@ -622,7 +636,7 @@ public sealed class CadCanvas : FrameworkElement
     /// being dragged. Both want snapping resolved on every move and the snap
     /// marker drawn, and one answer keeps them from drifting apart.
     /// </summary>
-    private bool IsPlacingPoint => Mode == CanvasMode.Draw || _heldGrip is not null;
+    private bool IsPlacingPoint => Mode is CanvasMode.Draw or CanvasMode.PickPoint || _heldGrip is not null;
 
     /// <summary>Fires with the cursor position in world units.</summary>
     public event EventHandler<Vec2>? CursorMoved;
@@ -723,6 +737,7 @@ public sealed class CadCanvas : FrameworkElement
             Selection.IsEmpty ? null : Selection.Entities, Settings);
 
         if (_tool is not null) DrawToolPreview(sink);
+        DrawArrayPreview(sink);
         DrawGripPreview(sink);
 
         // Over the preview: a grip is a target for the mouse, and one hidden
@@ -895,6 +910,25 @@ public sealed class CadCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// The copies an array would make, drawn the way a modify tool's preview
+    /// is: the selection pushed through each transform, nothing moved.
+    /// </summary>
+    private void DrawArrayPreview(IDrawingSink sink)
+    {
+        if (_arrayPreview is not { Count: > 0 } copies || _drawing is null || Selection.IsEmpty) return;
+
+        var context = new EmitContext(sink, _drawing.Layers, Camera.Scale);
+        var style = new DisplayStyle(PreviewColor, Lineweight.Default);
+
+        foreach (var transform in copies)
+        {
+            sink.PushTransform(transform);
+            foreach (var entity in Selection.Ordered) entity.Emit(context, style);
+            sink.PopTransform();
+        }
+    }
+
+    /// <summary>
     /// The selection drawn where the pending transform would put it.
     /// </summary>
     /// <remarks>
@@ -1024,6 +1058,15 @@ public sealed class CadCanvas : FrameworkElement
 
         if (_drawing is null) return;
 
+        if (Mode == CanvasMode.PickPoint && e.ChangedButton == MouseButton.Left)
+        {
+            Point picked = e.GetPosition(this);
+            SupplyPoint(Camera.ScreenToWorld(new Vec2(picked.X, picked.Y)));
+
+            e.Handled = true;
+            return;
+        }
+
         // A tool takes its points on the way down, and never bands.
         if (Mode == CanvasMode.Draw && e.ChangedButton == MouseButton.Left)
         {
@@ -1105,7 +1148,7 @@ public sealed class CadCanvas : FrameworkElement
             InvalidateVisual();
             PendingPointChanged?.Invoke(this, EventArgs.Empty);
         }
-        else if (Mode == CanvasMode.Draw)
+        else if (Mode is CanvasMode.Draw or CanvasMode.PickPoint)
         {
             // The preview and the snap marker both follow the cursor, so
             // every move is a repaint.
@@ -1727,6 +1770,87 @@ public sealed class CadCanvas : FrameworkElement
         Selection.Prune(_drawing.ActiveLayout.Entities.Contains);
 
         RaiseDrawingEdited();
+        return true;
+    }
+
+    /// <summary>
+    /// Copies an array would make, shown over the drawing until it is set
+    /// back to null. The array dialog sets it as its numbers change.
+    /// </summary>
+    public IReadOnlyList<Mat3>? ArrayPreview
+    {
+        get => _arrayPreview;
+        set
+        {
+            _arrayPreview = value;
+            InvalidateVisual();
+        }
+    }
+
+    /// <summary>
+    /// Arrays the selection, as one undoable step, and leaves the whole
+    /// array selected so it can be moved as a piece. False when there is
+    /// nothing selected or the pattern makes no copies.
+    /// </summary>
+    public bool ArraySelection(ArrayPattern pattern)
+    {
+        if (_drawing is null || Commands is null || Selection.IsEmpty || !pattern.IsValid) return false;
+
+        var originals = Selection.Ordered.ToList();
+        var bounds = originals.Aggregate(Bounds2.Empty, (all, entity) => all.Union(entity.Bounds));
+        var transforms = pattern.Copies(bounds);
+        if (transforms.Count == 0) return false;
+
+        string name = pattern switch
+        {
+            RectangularArray r => $"Array {r.Columns} x {r.Rows}",
+            PolarArray p => $"Polar array of {p.Count}",
+            _ => "Array",
+        };
+
+        var command = new ArrayEntities(_drawing.ActiveLayout, originals, transforms, name);
+        Commands.Do(command);
+
+        ArrayPreview = null;
+        Selection.Set(originals.Concat(command.Copies).ToList());
+
+        RaiseDrawingEdited();
+        return true;
+    }
+
+    /// <summary>
+    /// Waits for one snapped click on the drawing, for a dialog that needs a
+    /// point -- an array's centre. Null if it is abandoned: Escape, or any
+    /// other mode being taken up first. The selection is left alone.
+    /// </summary>
+    public Task<Vec2?> PickPointAsync(string prompt)
+    {
+        SetMode(CanvasMode.PickPoint, null);
+
+        _pointPrompt = prompt;
+        _pointRequest = new TaskCompletionSource<Vec2?>();
+        Cursor = Cursors.Cross;
+
+        ModeChanged?.Invoke(this, EventArgs.Empty);
+        return _pointRequest.Task;
+    }
+
+    /// <summary>
+    /// Answers a <see cref="PickPointAsync"/> with the point a click at
+    /// <paramref name="world"/> snaps to. Public for the reason
+    /// <see cref="PlaceToolPoint"/> is: the mouse handler is a thin wrapper
+    /// over it, and a test has no mouse.
+    /// </summary>
+    public bool SupplyPoint(Vec2 world)
+    {
+        if (Mode != CanvasMode.PickPoint) return false;
+
+        var point = ResolvePoint(world);
+        var request = _pointRequest;
+        _pointRequest = null;
+
+        UseSelect();
+        request?.TrySetResult(point);
         return true;
     }
 

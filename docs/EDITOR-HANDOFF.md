@@ -70,7 +70,7 @@ the editor phase.
 | E5 | — | **save: delta-applied onto the original document, DWG and DXF** |
 
 E1, E2 and E3 are done. E4 is done but for polygon, text, hatch, spline,
-block insertion, offset, array and explode. E5's first pass is done; its gaps
+block insertion, offset and explode; array is done (rectangular and polar). E5's first pass is done; its gaps
 are listed under E5 below.
 
 Dimensions and layer editing arrived after the milestone list was written and
@@ -679,7 +679,7 @@ deliberate divergence from AutoCAD, which applies one setting to both.
 Still to do, and still dark in the palette: polygon, which needs somewhere to
 ask for a side count; text, which needs an editor; hatch and block insertion,
 which need a boundary and a definition chooser respectively; spline; offset,
-which needs real curve offsetting; array, which needs row and column counts;
+which needs real curve offsetting;
 and explode, which is what trim and extend are waiting on for polylines.
 
 **E5 — Save. First pass done.** Ctrl+S writes back to the file it came

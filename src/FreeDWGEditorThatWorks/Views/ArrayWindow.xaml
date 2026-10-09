@@ -1,0 +1,96 @@
+<Window x:Class="FreeDWGEditorThatWorks.Views.ArrayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Array" SizeToContent="WidthAndHeight" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <!--
+        The copies are previewed on the drawing behind the dialog as the
+        numbers change, so the dialog only has to hold the numbers. Pick
+        steps aside for one click on the drawing and comes back.
+    -->
+    <StackPanel Margin="14" MinWidth="360">
+        <TabControl x:Name="Kind" SelectionChanged="OnKindChanged">
+            <TabItem Header="Rectangular">
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Columns" VerticalAlignment="Center" Margin="0,3,12,3" />
+                    <TextBox x:Name="ColumnsBox" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+
+                    <TextBlock Grid.Row="1" Text="Rows" VerticalAlignment="Center" Margin="0,3,12,3" />
+                    <TextBox x:Name="RowsBox" Grid.Row="1" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+
+                    <TextBlock Grid.Row="2" Text="Column spacing" VerticalAlignment="Center" Margin="0,3,12,3"
+                               ToolTip="Distance from one column to the next. Negative runs the array to the left." />
+                    <TextBox x:Name="ColumnSpacingBox" Grid.Row="2" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+                    <TextBlock x:Name="ColumnSpacingUnit" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.75" />
+
+                    <TextBlock Grid.Row="3" Text="Row spacing" VerticalAlignment="Center" Margin="0,3,12,3"
+                               ToolTip="Distance from one row to the next. Negative runs the array downwards." />
+                    <TextBox x:Name="RowSpacingBox" Grid.Row="3" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+                    <TextBlock x:Name="RowSpacingUnit" Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.75" />
+
+                    <TextBlock Grid.Row="4" Text="Angle" VerticalAlignment="Center" Margin="0,3,12,3"
+                               ToolTip="Turns the whole grid, in degrees counter-clockwise." />
+                    <TextBox x:Name="AngleBox" Grid.Row="4" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="deg" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.75" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Polar">
+                <Grid Margin="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Items" VerticalAlignment="Center" Margin="0,3,12,3"
+                               ToolTip="How many there are in all, the original included." />
+                    <TextBox x:Name="CountBox" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+
+                    <TextBlock Grid.Row="1" Text="Fill angle" VerticalAlignment="Center" Margin="0,3,12,3"
+                               ToolTip="How far round they spread. 360 spaces them evenly all the way round; negative goes clockwise." />
+                    <TextBox x:Name="FillBox" Grid.Row="1" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="deg" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.75" />
+
+                    <TextBlock Grid.Row="2" Text="Centre X" VerticalAlignment="Center" Margin="0,3,12,3" />
+                    <TextBox x:Name="CenterXBox" Grid.Row="2" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+                    <Button Grid.Row="2" Grid.RowSpan="2" Grid.Column="2" Content="Pick..." Width="60" Margin="8,3,0,3"
+                            Click="OnPickCentre" ToolTip="Click the centre on the drawing, with snaps" />
+
+                    <TextBlock Grid.Row="3" Text="Centre Y" VerticalAlignment="Center" Margin="0,3,12,3" />
+                    <TextBox x:Name="CenterYBox" Grid.Row="3" Grid.Column="1" Margin="0,3" TextChanged="OnFieldChanged" />
+
+                    <CheckBox x:Name="RotateBox" Grid.Row="4" Grid.ColumnSpan="3" Margin="0,8,0,0"
+                              Content="Rotate items as they go round" Click="OnFieldChanged" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <TextBlock x:Name="Summary" TextWrapping="Wrap" MaxWidth="360" Margin="0,10,0,0" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="OkButton" Content="Array" Width="90" Height="26" IsDefault="True" Click="OnOk" />
+            <Button Content="Cancel" Width="90" Height="26" IsCancel="True" Margin="8,0,0,0" />
+        </StackPanel>
+    </StackPanel>
+</Window>

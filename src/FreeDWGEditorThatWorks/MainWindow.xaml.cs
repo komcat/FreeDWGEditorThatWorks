@@ -1111,6 +1111,65 @@ public partial class MainWindow : Window
         { Owner = this }.ShowDialog();
     }
 
+    /// <summary>The last array's numbers, so the next one starts from its counts.</summary>
+    private readonly ArrayChoices _arrayChoices = new();
+
+    /// <summary>
+    /// Arrays the selection: the dialog, with the copies previewed behind it,
+    /// and -- for a polar array -- a click on the drawing for the centre.
+    /// </summary>
+    /// <remarks>
+    /// The dialog is modal, so picking the centre closes it and this opens it
+    /// again on the same choices once the point is in. Escape during the pick
+    /// just brings the dialog back with the centre it had.
+    /// </remarks>
+    private async void OnArrayClick(object sender, RoutedEventArgs e)
+    {
+        if (Canvas.Drawing is not { } drawing) return;
+
+        if (Canvas.Selection.IsEmpty)
+        {
+            StatusText.Text = "Select something first, then pick array.";
+            Canvas.Focus();
+            return;
+        }
+
+        // A modify tool half way through would be drawing its own preview
+        // over the array's.
+        if (Canvas.Mode != CanvasMode.Select) Canvas.UseSelect();
+
+        var selected = Canvas.Selection.Ordered;
+        var bounds = selected.Aggregate(Bounds2.Empty, (all, entity) => all.Union(entity.Bounds));
+        _arrayChoices.FitTo(bounds);
+
+        while (true)
+        {
+            var dialog = new ArrayWindow(_arrayChoices, drawing.Units, selected.Count,
+                pattern => Canvas.ArrayPreview = pattern?.Copies(bounds))
+            { Owner = this };
+
+            bool accepted = dialog.ShowDialog() == true;
+
+            if (dialog.PickCentreRequested)
+            {
+                // The ring stays on screen while the centre is chosen, so the
+                // click can be aimed with the result in view.
+                var point = await Canvas.PickPointAsync("Array: pick the centre to array round  (Escape to go back)");
+                if (point is { } centre) _arrayChoices.Center = centre;
+                continue;
+            }
+
+            Canvas.ArrayPreview = null;
+
+            if (accepted && dialog.Chosen is { } chosen && Canvas.ArraySelection(chosen))
+                StatusText.Text = $"{Canvas.Commands?.UndoName}: {chosen.Items - 1} copies. Ctrl+Z takes the whole array back.";
+
+            break;
+        }
+
+        Canvas.Focus();
+    }
+
     private void OnDimensionStyleClick(object sender, RoutedEventArgs e)
     {
         EditDimensionStyle(this);

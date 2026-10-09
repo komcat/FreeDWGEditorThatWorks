@@ -236,8 +236,9 @@
                                          Tag="{StaticResource Icon.Mirror}" ToolTip="Mirror  -  select first, then pick the mirror line. The original is kept" />
                             <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
                                          Tag="{StaticResource Icon.Offset}" ToolTip="Offset  -  needs curve offsetting, which is a job of its own for splines and ellipses" />
-                            <RadioButton GroupName="Tool" Style="{StaticResource ToolToggle}" IsEnabled="False"
-                                         Tag="{StaticResource Icon.Array}" ToolTip="Array  -  needs somewhere to ask for row and column counts" />
+                            <!-- A button, not a tool: it opens a dialog on the selection, as Dimension style does. -->
+                            <Button Style="{StaticResource ToolButton}" Click="OnArrayClick"
+                                    Tag="{StaticResource Icon.Array}" ToolTip="Array  -  copies of the selection in rows and columns, or round a centre" />
                             <RadioButton x:Name="TrimButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"
                                          Tag="{StaticResource Icon.Trim}" ToolTip="Trim  -  click the part of a line or arc to cut away" />
                             <RadioButton x:Name="ExtendButton" GroupName="Tool" Style="{StaticResource ToolToggle}" Click="OnToolPicked"

@@ -15,4 +15,11 @@ public enum CanvasMode
 
     /// <summary>Drag once to frame the view, then back to <see cref="Select"/>.</summary>
     ZoomWindow,
+
+    /// <summary>
+    /// Click once to hand a snapped point to whoever asked for it -- a
+    /// dialog wanting a centre -- then back to <see cref="Select"/>, with the
+    /// selection left as it was.
+    /// </summary>
+    PickPoint,
 }
