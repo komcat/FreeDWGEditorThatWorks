@@ -101,6 +101,18 @@ which is the point -- they were found by loading a folder of ordinary sample
 drawings and comparing, not by a fixture written here. A fixture written
 here only ever contains what was thought of.
 
+**`SaveTests`** edits a drawing, saves it, and reads the file back through
+the real reader -- never the document in memory, because the writer and the
+reader have to agree, and an arc written with its sweep reversed is a
+correct-looking object in memory and an inside-out arc on screen. The one to
+read first is `WhatTheSceneNeverReadSurvivesAnEdit`: xdata and a skipped
+POINT still in the file after an edit is the property the whole design
+exists for. The undo cases matter as much: a save replays the change log
+from opening, so an edit undone *after* a save has to be written back by the
+next one. Each test gets its own folder, since a save overwrites its file.
+`SampleSurveyTests.SaveSurvey` does the same to a folder of real drawings,
+writing only to a temporary copy.
+
 **`LayerPanelTests`** is about one fact and is short because of it: a row in
 the layers list carries the index of the layer it shows, rather than the
 panel reading the row's position back off the list. With the filter in the

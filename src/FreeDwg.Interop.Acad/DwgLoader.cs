@@ -31,21 +31,51 @@ public static class DwgLoader
     {
         var diag = diagnostics ?? new ImportDiagnostics();
 
-        CadDocument document = IsDxf(path)
-            ? DxfReader.Read(path, (_, e) => diag.OnNotification(e))
-            : DwgReader.Read(path, (_, e) => diag.OnNotification(e));
-
-        var drawing = Convert(document, diag);
+        var drawing = Convert(Read(path, diag), diag);
         drawing.SourcePath = path;
         return drawing;
     }
+
+    /// <summary>Reads the file into ACadSharp's model, without converting it.</summary>
+    internal static CadDocument Read(string path, ImportDiagnostics diagnostics) =>
+        IsDxf(path)
+            ? DxfReader.Read(path, (_, e) => diagnostics.OnNotification(e))
+            : DwgReader.Read(path, (_, e) => diagnostics.OnNotification(e));
 
     /// <summary>Converts an already-open document, model space and all sheets.</summary>
     public static Drawing Convert(CadDocument document, ImportDiagnostics diagnostics) =>
         new Converter(document, diagnostics).Run();
 
-    private static bool IsDxf(string path) =>
+    internal static bool IsDxf(string path) =>
         string.Equals(Path.GetExtension(path), ".dxf", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The unit an INSUNITS value names, or Unitless for one not modelled.</summary>
+    internal static DrawingUnits UnitsOf(ACadSharp.Types.Units.UnitsType insUnits) => insUnits switch
+    {
+        ACadSharp.Types.Units.UnitsType.Millimeters => DrawingUnits.Millimetres,
+        ACadSharp.Types.Units.UnitsType.Centimeters => DrawingUnits.Centimetres,
+        ACadSharp.Types.Units.UnitsType.Meters => DrawingUnits.Metres,
+        ACadSharp.Types.Units.UnitsType.Kilometers => DrawingUnits.Kilometres,
+        ACadSharp.Types.Units.UnitsType.Inches => DrawingUnits.Inches,
+        ACadSharp.Types.Units.UnitsType.Feet => DrawingUnits.Feet,
+        ACadSharp.Types.Units.UnitsType.Yards => DrawingUnits.Yards,
+        ACadSharp.Types.Units.UnitsType.Miles => DrawingUnits.Miles,
+        _ => DrawingUnits.Unitless,
+    };
+
+    /// <summary>The INSUNITS value for a unit, the inverse of <see cref="UnitsOf"/>.</summary>
+    internal static ACadSharp.Types.Units.UnitsType InsUnitsOf(DrawingUnits units) => units switch
+    {
+        DrawingUnits.Millimetres => ACadSharp.Types.Units.UnitsType.Millimeters,
+        DrawingUnits.Centimetres => ACadSharp.Types.Units.UnitsType.Centimeters,
+        DrawingUnits.Metres => ACadSharp.Types.Units.UnitsType.Meters,
+        DrawingUnits.Kilometres => ACadSharp.Types.Units.UnitsType.Kilometers,
+        DrawingUnits.Inches => ACadSharp.Types.Units.UnitsType.Inches,
+        DrawingUnits.Feet => ACadSharp.Types.Units.UnitsType.Feet,
+        DrawingUnits.Yards => ACadSharp.Types.Units.UnitsType.Yards,
+        DrawingUnits.Miles => ACadSharp.Types.Units.UnitsType.Miles,
+        _ => ACadSharp.Types.Units.UnitsType.Unitless,
+    };
 
     private sealed class Converter
     {
@@ -118,18 +148,7 @@ public static class DwgLoader
         {
             var insUnits = _document.Header?.InsUnits ?? ACadSharp.Types.Units.UnitsType.Unitless;
 
-            _drawing.Units = insUnits switch
-            {
-                ACadSharp.Types.Units.UnitsType.Millimeters => DrawingUnits.Millimetres,
-                ACadSharp.Types.Units.UnitsType.Centimeters => DrawingUnits.Centimetres,
-                ACadSharp.Types.Units.UnitsType.Meters => DrawingUnits.Metres,
-                ACadSharp.Types.Units.UnitsType.Kilometers => DrawingUnits.Kilometres,
-                ACadSharp.Types.Units.UnitsType.Inches => DrawingUnits.Inches,
-                ACadSharp.Types.Units.UnitsType.Feet => DrawingUnits.Feet,
-                ACadSharp.Types.Units.UnitsType.Yards => DrawingUnits.Yards,
-                ACadSharp.Types.Units.UnitsType.Miles => DrawingUnits.Miles,
-                _ => DrawingUnits.Unitless,
-            };
+            _drawing.Units = UnitsOf(insUnits);
 
             if (_drawing.Units != DrawingUnits.Unitless) return;
 

@@ -7,11 +7,13 @@ second copy.
 
 ## Start here
 
-The reader is complete and the editor draws, modifies and undoes. **What it
-cannot do is save.** That is E5, and it is the whole of what stands between
-this and a program someone could use on a real file. The groundwork for it --
+The reader is complete and the editor draws, modifies, undoes **and saves**.
+Save is E5, and its first pass is in: `DwgSession` keeps the `CadDocument`
+the drawing was read from and writes the command stack's changes back onto
+it, so everything the scene does not model survives. The groundwork for it --
 `SourceHandle` carried on everything, every mutation going through the
-command stack -- has been in since before the editor phase began, on purpose.
+command stack -- had been in since before the editor phase began, on purpose,
+and it held. See **E5** under Milestones for what is and is not written.
 
 If there is a `NEXT-SESSION.md` beside this file, read that first: it is a
 short dated note about where the last session stopped, and it is deleted
@@ -64,10 +66,12 @@ the editor phase.
 | E4 | `4cd4e0d` | fillet and chamfer on a polyline corner; sizes typed on the canvas |
 | — | `4cd4e0d` | layers: new, delete, rename, recolour |
 | — | — | the layers panel moves to the right, with a filter |
-| E5 | — | **save — not started** |
+| — | `19afc05` | layer groups, kept in a file beside the drawing |
+| E5 | — | **save: delta-applied onto the original document, DWG and DXF** |
 
 E1, E2 and E3 are done. E4 is done but for polygon, text, hatch, spline,
-block insertion, offset, array and explode. E5 has not been started.
+block insertion, offset, array and explode. E5's first pass is done; its gaps
+are listed under E5 below.
 
 Dimensions and layer editing arrived after the milestone list was written and
 do not fit a letter: dimensioning was always filed under E5 because writing
@@ -235,18 +239,14 @@ so most code never needed to know layouts exist.
 and pixels-per-unit through the emit tree. Selection highlighting and grip
 drawing will want the same channel.
 
-## The gap that is not yet closed
+## The gap that was closed
 
-`DwgLoader.Load` returns a `Drawing` and **throws the `CadDocument` away**.
-Delta-save needs it. Core cannot hold it — Core must not see ACadSharp.
-
-Suggested shape: a `DwgSession` in `FreeDwg.Interop.Acad` owning both the
-`CadDocument` and the `Drawing`, exposing `Save(path)`. Core stays clean, the
+`DwgLoader.Load` used to return a `Drawing` and throw the `CadDocument`
+away, which delta-save needs and Core cannot hold. It went the way this
+section suggested: `DwgSession` in `FreeDwg.Interop.Acad` owns both, the
 shell holds a session rather than a bare drawing, and the handle→object
-mapping lives on the side that knows what a handle is.
-
-Change tracking has to come from the command layer: a dirty set of
-`SourceHandle`s plus created/deleted lists. Do not try to diff two documents.
+mapping lives on the side that knows what a handle is. Change tracking comes
+from the command layer's `ChangeLog`; no two documents are ever diffed.
 
 ## Milestones
 
@@ -678,20 +678,93 @@ which need a boundary and a definition chooser respectively; spline; offset,
 which needs real curve offsetting; array, which needs row and column counts;
 and explode, which is what trim and extend are waiting on for polylines.
 
-**E5 — Save.** Delta-apply onto the original document, then `DwgWriter`.
-Write R2000 (AC1015) first. Note ACadSharp cannot write AC1021 (R2007) at
-all; every other version from R14 up is supported.
+**E5 — Save. First pass done.** Ctrl+S writes back to the file it came
+from, Ctrl+Shift+S (or right-click Save) writes elsewhere, as DWG or DXF by
+the extension. Closing, New and Open ask first when there is unsaved work.
 
-Regenerating dimensions after an edit is the one place the anonymous-block
-shortcut stops paying: at that point real dimension layout has to be written.
-It is not needed before E5.
+`SceneWriter` does not apply edits; it makes the document *match the scene*
+for every handle the change log names, plus every handle an earlier save
+touched. That distinction is the design. The log is replayed from the moment
+the file was opened, so a second save sees the first save's edits again, and
+an undo after a save takes back something the file already has. Writing
+"what the scene says now" makes both of those free: the second save finds
+nothing different, and the undone edit is written back the other way.
+`SaveState` is what one save leaves for the next -- the handles it touched,
+the objects it removed (an undone erase puts the very same object back,
+xdata and all), and where opaque objects stood when last written.
+
+Two ways of writing, by kind:
+
+- **From the scene**, for kinds it holds exactly: line, circle, arc,
+  ellipse, lightweight polyline, a 2D polyline with an unchanged vertex
+  count, spline, text, block insert, viewport, and `SDimension`. Only fields
+  that differ are set, so an untouched entity is never rewritten. Arcs,
+  ellipse spans and bulges with a negative sweep are written counter-
+  clockwise from the far end -- DWG has no clockwise arc, and the mirror
+  that makes one is the trap this project keeps paying for.
+- **By moving the file's own object**, for kinds the scene flattened: a
+  HATCH (arcs in its boundary, a pattern definition behind its strokes), a
+  SOLID, and an imported dimension, which the scene only has as a picture.
+  `SHatch.Moved` and `SInsert.Placement` say how far the scene's copy has
+  gone since the last write, and `CadGeometry.Apply` moves the file object
+  by the difference -- boundary, pattern lines and seed points together, or
+  definition points and picture block together. ACadSharp's own
+  `ApplyTransform` is not used for these: it mirrors by turning the normal
+  upside down, which is valid DWG and which this reader, ignoring normals,
+  would draw inside out.
+
+A copy is written by cloning the object it was copied from
+(`SceneEntity.CopiedFrom`), so a copied hatch keeps its pattern and a copied
+insert its attributes; a copied dimension gets a picture block of its own.
+A trim that changes what something is -- circle to arc -- replaces the file
+object, as AutoCAD does. A drawn `SDimension` is written as a real DIMENSION
+with its definition points, plus a picture block drawn by its own `Emit`
+through `BlockPictureSink`, so the file shows what the editor showed.
+
+Styles: a colour, width or linetype equal to the layer's is written ByLayer,
+and nothing is written where the file already resolves to the scene's value
+-- otherwise every ByLayer entity a save touched would stop following its
+layer. Colours go out as an AutoCAD index where one matches exactly (not via
+`Color.ApproxIndex`, which sums signed differences and gets it wrong).
+
+Layers are created, recoloured, renamed (in two steps, so a swap of two
+names does not collide) and deleted -- unless the file still has objects on
+the layer the scene never read, in which case it is kept and the save says so.
+
+The version written is the one read, except R2007, which ACadSharp cannot
+write, and which goes up to 2010. The file is written beside the target and
+swapped in, with the old one kept as `.bak`, so a save that fails leaves the
+old file whole. `SaveSurvey` (`FREEDWG_SAMPLES`) saves every sample twice --
+untouched, and with all of model space moved -- and reads both back; all
+fourteen samples come back with the same entity count and identical extents.
+
+Known gaps, roughly in the order they will be met:
+
+- **Nothing has been opened in AutoCAD yet.** Every check is ACadSharp
+  writing and ACadSharp reading. A real-AutoCAD open of a saved sample is the
+  first thing to do with this.
+- An edit to one cell of a MINSERT is reported and not written.
+- Painting order is not written: a replaced object goes to the end of its
+  block record, and there is no SORTENTS table.
+- Text on a style with a fixed height keeps the style's height when scaled,
+  and the save says so. Editing MTEXT's words writes them plain, losing the
+  inline formatting -- but only when the words changed.
+- A dimension's picture is regenerated only for `SDimension`. An imported
+  dimension that is moved keeps its old measurement text, which is right for
+  a move and would be wrong for a stretch -- there is no stretch for one yet.
+- Imported DIMENSIONs still read back as pictures, including the ones this
+  writes; a saved `SDimension` reopens as a block, not an editable dimension.
+- Changing the units in Document settings does not mark the drawing
+  modified, so on its own it does not prompt on close (it is written by the
+  next save regardless).
+- The save is synchronous on the UI thread, deliberately -- see `Save` in
+  `MainWindow` -- so a very large file freezes the window while it writes.
 
 ## Where to go next, ranked
 
-1. **E5, save.** Nothing else changes what this program *is*. Start with the
-   `DwgSession` described above; the writer is the easy half. Note that the
-   change log now reports layers as well as entities, and that `SDimension`
-   and the imported exploded-block dimensions have to be reconciled there.
+1. **Open a saved file in AutoCAD.** The writer has only ever been checked by
+   the reader that shares its library. Then pick up the E5 gaps above, and
+   reconcile imported dimensions with `SDimension` on the way in.
 2. **Explode.** Trim and extend handle lines, arcs and circles only, so a
    polyline has to be broken up first and there is no way to break one up.
    It no longer blocks fillet and chamfer, which turned out not to need it:

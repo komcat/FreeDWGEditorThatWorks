@@ -24,8 +24,12 @@ public sealed class Layer
     public bool IsFrozen { get; set; }
     public bool IsLocked { get; set; }
 
-    /// <summary>Handle of the originating DWG record, for delta-save later.</summary>
-    public ulong SourceHandle { get; init; }
+    /// <summary>
+    /// Handle of the DWG record this is. Settable because a layer made here
+    /// has none until the first save gives it one, and the second save has to
+    /// find the record the first one wrote rather than write another.
+    /// </summary>
+    public ulong SourceHandle { get; set; }
 
     public bool IsVisible => IsOn && !IsFrozen;
 

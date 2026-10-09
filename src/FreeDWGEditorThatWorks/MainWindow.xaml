@@ -24,8 +24,20 @@
                         Click="OnNewClick" ToolTip="New drawing  (Ctrl+N)" />
                 <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Open}"
                         Click="OnOpenClick" ToolTip="Open a DWG or DXF drawing  (Ctrl+O)" />
+                <!--
+                    Save As is on the button's context menu and Ctrl+Shift+S
+                    rather than a second button: two buttons with the same
+                    picture would be a guessing game.
+                -->
                 <Button Style="{StaticResource ToolButton}" Tag="{StaticResource Icon.Save}"
-                        IsEnabled="False" ToolTip="Save  -  arrives with E5, which applies edits back onto the original document" />
+                        Click="OnSaveClick" ToolTip="Save  (Ctrl+S).  Right-click to save as  (Ctrl+Shift+S)">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="_Save" InputGestureText="Ctrl+S" Click="OnSaveClick" />
+                            <MenuItem Header="Save _As..." InputGestureText="Ctrl+Shift+S" Click="OnSaveAsClick" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
 
                 <Rectangle Style="{StaticResource ToolBarDivider}" />
 

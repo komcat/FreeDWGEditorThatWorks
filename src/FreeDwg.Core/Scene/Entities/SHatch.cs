@@ -32,6 +32,19 @@ public sealed class SHatch : SceneEntity
     /// <summary>Pattern strokes, already clipped to the boundary.</summary>
     public IReadOnlyList<Segment2> PatternSegments { get; set; } = Array.Empty<Segment2>();
 
+    /// <summary>
+    /// Everything this hatch has been moved by since it was read.
+    /// </summary>
+    /// <remarks>
+    /// The loops and strokes above are flattened, so they cannot be written
+    /// back: a file's hatch has arcs in its boundary and a pattern definition
+    /// behind its strokes, and replacing those with polygons and loose lines
+    /// would be a different hatch. A save applies this to the file's own
+    /// hatch instead. Undo applies the inverse, so it comes back to identity
+    /// when the hatch is back where it started.
+    /// </remarks>
+    public Mat3 Moved { get; private set; } = Mat3.Identity;
+
     protected override Bounds2 ComputeBounds()
     {
         var bounds = Bounds2.Empty;
@@ -117,6 +130,8 @@ public sealed class SHatch : SceneEntity
 
     protected override void TransformGeometry(in Mat3 transform)
     {
+        Moved = Moved * transform;
+
         var loops = new List<IReadOnlyList<Vec2>>(Loops.Count);
 
         foreach (var loop in Loops)

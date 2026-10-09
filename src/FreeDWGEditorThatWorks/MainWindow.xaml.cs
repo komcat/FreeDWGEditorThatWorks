@@ -71,6 +71,12 @@ public partial class MainWindow : Window
     private ImportDiagnostics? _diagnostics;
     private string _documentName = "Untitled";
 
+    /// <summary>
+    /// The open drawing together with the document it was read from, which
+    /// is what a save writes onto. The canvas holds the same drawing.
+    /// </summary>
+    private DwgSession? _session;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -151,6 +157,8 @@ public partial class MainWindow : Window
 
         InputBindings.Add(new KeyBinding(new RelayCommand(OpenAsync), Key.O, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(NewDrawing), Key.N, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => Save(saveAs: false)), Key.S, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new RelayCommand(() => Save(saveAs: true)), Key.S, ModifierKeys.Control | ModifierKeys.Shift));
         InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Undo), Key.Z, ModifierKeys.Control));
         InputBindings.Add(new KeyBinding(new RelayCommand(Canvas.Redo), Key.Y, ModifierKeys.Control));
 
@@ -167,7 +175,12 @@ public partial class MainWindow : Window
     /// </summary>
     private void NewDrawing()
     {
-        var drawing = SceneDrawing.CreateEmpty();
+        if (!ConfirmDiscard()) return;
+
+        // Backed by a fresh document rather than a bare scene, so that the
+        // first save has a file to write rather than having to invent one.
+        _session = DwgSession.CreateNew();
+        var drawing = _session.Drawing;
 
         _diagnostics = null;
         _documentName = "Untitled";
@@ -443,6 +456,8 @@ public partial class MainWindow : Window
 
     private async Task OpenAsync()
     {
+        if (!ConfirmDiscard()) return;
+
         var dialog = new OpenFileDialog
         {
             Title = "Open drawing",
@@ -459,8 +474,10 @@ public partial class MainWindow : Window
         {
             // Importing a large drawing takes seconds; keep the UI responsive.
             var diagnostics = new ImportDiagnostics();
-            SceneDrawing drawing = await Task.Run(() => DwgLoader.Load(path, diagnostics));
+            var session = await Task.Run(() => DwgSession.Open(path, diagnostics));
+            SceneDrawing drawing = session.Drawing;
 
+            _session = session;
             _diagnostics = diagnostics;
             _documentName = Path.GetFileName(path);
 
@@ -491,6 +508,124 @@ public partial class MainWindow : Window
         {
             Cursor = Cursors.Arrow;
         }
+    }
+
+    private void OnSaveClick(object sender, RoutedEventArgs e)
+    {
+        Save(saveAs: false);
+        Canvas.Focus();
+    }
+
+    private void OnSaveAsClick(object sender, RoutedEventArgs e)
+    {
+        Save(saveAs: true);
+        Canvas.Focus();
+    }
+
+    /// <summary>
+    /// Writes the drawing, asking where first if it has never been saved or
+    /// if <paramref name="saveAs"/> says to. False if nothing was written.
+    /// </summary>
+    /// <remarks>
+    /// Synchronous, on purpose. A save reads the command stack and marks it
+    /// saved at the end; an edit made while the file was being written in the
+    /// background would be marked saved without being in the file.
+    /// </remarks>
+    private bool Save(bool saveAs)
+    {
+        if (_session is null || Canvas.Commands is not { } commands) return false;
+
+        string? path = _session.Path;
+        bool newPath = saveAs || path is null;
+
+        if (newPath)
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = saveAs ? "Save drawing as" : "Save drawing",
+                Filter = $"DWG drawing, {_session.FormatName} (*.dwg)|*.dwg|DXF drawing (*.dxf)|*.dxf",
+                FileName = path is null ? "Untitled.dwg" : Path.GetFileName(path),
+                InitialDirectory = path is null ? "" : Path.GetDirectoryName(path),
+                AddExtension = true,
+                DefaultExt = ".dwg",
+                OverwritePrompt = true,
+            };
+
+            if (path is not null && string.Equals(Path.GetExtension(path), ".dxf", StringComparison.OrdinalIgnoreCase))
+                dialog.FilterIndex = 2;
+
+            if (dialog.ShowDialog(this) != true) return false;
+            path = dialog.FileName;
+        }
+
+        StatusText.Text = $"Saving {Path.GetFileName(path)}...";
+        Cursor = Cursors.Wait;
+
+        try
+        {
+            var report = _session.Save(commands, path);
+            _documentName = Path.GetFileName(report.Path);
+
+            // The groups belong beside whichever file the drawing now is.
+            if (newPath)
+            {
+                _layerGroupsProblem = null;
+                _layerGroupsSaved = null;
+            }
+            SaveLayerGroups();
+
+            UpdateTitle();
+            StatusText.Text = report.Summary();
+
+            // Anything the writer could not express is said out loud: a file
+            // that quietly comes back without an edit in it is the worst way
+            // for a save to fail.
+            if (report.Notes.Count > 0)
+            {
+                MessageBox.Show(this,
+                    "The drawing was saved, but not everything in it was written as drawn:\n\n"
+                    + string.Join("\n", report.Notes.Take(15).Select(note => "  - " + note))
+                    + (report.Notes.Count > 15 ? $"\n  ... and {report.Notes.Count - 15} more" : ""),
+                    "Saved with notes", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Failed to save {Path.GetFileName(path)}: {ex.Message}";
+            MessageBox.Show(this, ex.ToString(), "Could not save drawing", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        finally
+        {
+            Cursor = Cursors.Arrow;
+        }
+    }
+
+    /// <summary>
+    /// Asks whether to keep unsaved work before it is thrown away. True if
+    /// it is fine to carry on.
+    /// </summary>
+    private bool ConfirmDiscard()
+    {
+        if (Canvas.Commands?.IsModified != true) return true;
+
+        var answer = MessageBox.Show(this, $"Save changes to {_documentName}?", "FreeDWG Editor",
+            MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+        return answer switch
+        {
+            MessageBoxResult.Yes => Save(saveAs: false),
+            MessageBoxResult.No => true,
+            _ => false,
+        };
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (!ConfirmDiscard()) e.Cancel = true;
+        base.OnClosing(e);
     }
 
     private void PopulateLayouts(SceneDrawing drawing)

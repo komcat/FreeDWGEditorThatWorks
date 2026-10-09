@@ -34,6 +34,18 @@ public abstract class SceneEntity
     /// </summary>
     public ulong SourceHandle { get; set; }
 
+    /// <summary>
+    /// Handle of the file object this was copied from, if it is a copy.
+    /// </summary>
+    /// <remarks>
+    /// A copy is a new object and must not take the original's
+    /// <see cref="SourceHandle"/>, but for the kinds the scene cannot fully
+    /// express -- a hatch with its pattern, a dimension with its picture, a
+    /// block reference with its attributes -- the original is the only
+    /// faithful thing to write the copy from. Survives being copied again.
+    /// </remarks>
+    public ulong CopiedFrom { get; private set; }
+
     private Bounds2? _bounds;
 
     /// <summary>World bounds, computed once. Invalidate after mutating geometry.</summary>
@@ -187,6 +199,7 @@ public abstract class SceneEntity
     public SceneEntity Clone()
     {
         var copy = (SceneEntity)MemberwiseClone();
+        copy.CopiedFrom = SourceHandle != 0 ? SourceHandle : CopiedFrom;
         copy.SourceHandle = 0;
         copy.InvalidateBounds();
         copy.CloneGeometry();

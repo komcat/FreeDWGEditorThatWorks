@@ -6,7 +6,7 @@ this codebase is the scene model, the renderer and the shell.
 
 ```
 dotnet build FreeDWGEditorThatWorks.slnx
-dotnet test                 # 626 tests, ~1s
+dotnet test                 # 647 tests, ~1s
 ```
 
 `tests/FreeDwg.Tests/README.md` explains how the render tests work and how to
@@ -21,7 +21,8 @@ src/FreeDwg.Core/          net10.0          scene model, geometry, renderer
   Editing/                                  trim, extend, fillet, chamfer
   Picking/                                  hit testing, selection, spatial index
   Snapping/                                 object snap, ortho, the grid
-src/FreeDwg.Interop.Acad/  net10.0          ACadSharp -> scene  (the only project that sees ACadSharp)
+src/FreeDwg.Interop.Acad/  net10.0          ACadSharp <-> scene: the reader, and DwgSession, which saves
+                                            (the only project that sees ACadSharp)
 src/FreeDWGEditorThatWorks/ net10.0-windows WPF shell, canvas, WPF sink
   Resources/Icons.xaml                      toolbar icons, as path data
   Resources/Toolbars.xaml                   the one button template they share
@@ -36,6 +37,20 @@ with no WPF and no parser present. Do not add either reference to Core.
 
 ## Conventions that are load-bearing
 
+- **A save writes the scene's changes onto the document that was read.**
+  `DwgSession` holds both, and `SceneWriter` makes the document match the
+  scene for every handle the change log -- or any earlier save -- touched,
+  and nothing else; what the scene never read is never looked at. "Make it
+  match" rather than "apply the edit" is what lets the log be replayed from
+  opening on every save, and an undo after a save be written by the next.
+  Kinds the scene holds exactly (line, arc, polyline...) are written from
+  the scene; kinds it flattened (a hatch, an imported dimension's picture)
+  are the file's own object *moved* by however far the scene's copy has
+  (`SHatch.Moved`, `SInsert.Placement`), so nothing is lost. A copy is
+  written from the object it was copied from (`SceneEntity.CopiedFrom`).
+  Colours equal to the layer's are written ByLayer, and nothing is written
+  where the file already resolves to the scene's value. Anything that cannot
+  be written goes in `SaveReport.Notes` and is shown -- never dropped quietly.
 - **World coordinates are `double`, Y-up.** Device space is Y-down. The only
   place the two meet is `Camera` and the sink.
 - **Geometry is transformed to device space inside the sink; pens are not.**
